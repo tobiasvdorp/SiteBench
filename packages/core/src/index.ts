@@ -35,6 +35,8 @@ export {
   computePercentiles,
   createRunId,
   createTemplateId,
+  histogramBucketPercentages,
+  histogramTotalCount,
   isSameOrigin,
   normalizeUrl,
   percentile,

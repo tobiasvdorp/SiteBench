@@ -49,6 +49,7 @@ describe("DatabaseStore", () => {
     const loaded = store.getRun(run.id);
     expect(loaded?.configSnapshot.runName).toBe("Run A");
     expect(loaded?.aggregates?.totalRequests).toBe(1);
+    expect(loaded?.aggregates?.resourceTypeCounts.page).toBe(1);
 
     store.updateTemplate(template.id, {
       ...template,
@@ -58,6 +59,51 @@ describe("DatabaseStore", () => {
 
     const unchangedRun = store.getRun(run.id);
     expect(unchangedRun?.configSnapshot.maxPages).toBe(10);
+  });
+
+  it("persists request resource types for retrieval", () => {
+    const store = createInMemoryStore();
+    const snapshot = {
+      startUrl: "https://example.com",
+      rpsLimit: 2,
+      maxPages: 10,
+      timeLimitSeconds: null,
+      allowImages: true,
+      respectRobots: true,
+      requestTimeoutMs: 30_000,
+      connectTimeoutMs: 10_000,
+      maxRedirects: 5,
+      maxRetries: 2,
+      templateId: null,
+      templateName: null,
+      runName: "Assets",
+      siteOrigin: "https://example.com",
+    };
+
+    const run = store.createRun("Assets", "https://example.com", snapshot);
+    const records = [
+      { url: "https://example.com", resourceType: "page" as const },
+      { url: "https://example.com/app.js", resourceType: "js" as const },
+      { url: "https://example.com/style.css", resourceType: "css" as const },
+      { url: "https://example.com/font.woff2", resourceType: "font" as const },
+      { url: "https://example.com/photo.jpg", resourceType: "image" as const },
+    ];
+
+    for (const record of records) {
+      store.insertRequest(run.id, {
+        url: record.url,
+        resourceType: record.resourceType,
+        statusCode: 200,
+        errorClass: null,
+        errorMessage: null,
+        timings: { dnsMs: 1, connectMs: 2, ttfbMs: 50, totalMs: 80 },
+        byteCount: 100,
+        redirectCount: 0,
+      });
+    }
+
+    const loaded = store.getRequestsForRun(run.id);
+    expect(loaded.map((request) => request.resourceType)).toEqual(records.map((record) => record.resourceType));
   });
 
   it("reconciles stale running runs on startup", () => {

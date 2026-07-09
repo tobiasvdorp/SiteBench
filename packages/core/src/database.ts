@@ -3,6 +3,7 @@ import type {
   CrawlConfig,
   HistogramBucket,
   RequestRecord,
+  ResourceType,
   Run,
   RunAggregates,
   RunConfigSnapshot,
@@ -13,6 +14,14 @@ import type {
 } from "./types.js";
 import { buildHistogram, computePercentiles, createRequestId, createRunId, createTemplateId, nowIso } from "./utils.js";
 import { DEFAULT_CRAWL_CONFIG } from "./defaults.js";
+
+const RESOURCE_TYPES: ResourceType[] = ["page", "css", "js", "font", "image", "other"];
+
+function countResourceTypes(rows: { resource_type: string }[]) {
+  return Object.fromEntries(
+    RESOURCE_TYPES.map((type) => [type, rows.filter((row) => row.resource_type === type).length]),
+  ) as RunAggregates["resourceTypeCounts"];
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS templates (
@@ -408,16 +417,26 @@ export class DatabaseStore {
       totalRequests: rows.length,
       errorCount: rows.filter((row) => row.error_class !== null).length,
       pageCount: rows.filter((row) => row.resource_type === "page").length,
+      resourceTypeCounts: countResourceTypes(rows),
       ...percentiles,
       latencyHistogram: histogram,
     };
   }
 
-  getRequestsForRun(runId: string): RequestRecord[] {
+  getRequestsForRun(
+    runId: string,
+    options: { resourceType?: ResourceType; limit?: number } = {},
+  ): RequestRecord[] {
     const rows = this.db
       .prepare("SELECT * FROM requests WHERE run_id = ? ORDER BY created_at ASC")
       .all(runId) as RequestRow[];
-    return rows.map(rowToRequest);
+
+    let requests = rows.map(rowToRequest);
+    if (options.resourceType) {
+      requests = requests.filter((request) => request.resourceType === options.resourceType);
+    }
+    if (options.limit !== undefined) return requests.slice(-options.limit);
+    return requests;
   }
 }
 
@@ -449,12 +468,23 @@ export function aggregatesFromLatencies(
   latencies: number[],
   pageCount: number,
   errorCount: number,
+  resourceTypeCounts?: RunAggregates["resourceTypeCounts"],
 ): RunAggregates {
   const percentiles = computePercentiles(latencies);
   return {
     totalRequests: latencies.length,
     errorCount,
     pageCount,
+    resourceTypeCounts:
+      resourceTypeCounts ??
+      ({
+        page: pageCount,
+        css: 0,
+        js: 0,
+        font: 0,
+        image: 0,
+        other: Math.max(0, latencies.length - pageCount),
+      } as RunAggregates["resourceTypeCounts"]),
     ...percentiles,
     latencyHistogram: buildHistogram(latencies),
   };

@@ -146,7 +146,15 @@ export function createApiServer() {
       if (req.method === "GET" && path.startsWith("/api/runs/") && path.endsWith("/requests")) {
         const runId = path.split("/")[3];
         const limit = Number(url.searchParams.get("limit") ?? 150);
-        sendJson(res, 200, bench.getRunRequests(runId).slice(-limit));
+        const resourceType = url.searchParams.get("resourceType") ?? undefined;
+        sendJson(
+          res,
+          200,
+          bench.getRunRequests(runId, {
+            limit,
+            resourceType: resourceType as import("@sitebench/core").ResourceType | undefined,
+          }),
+        );
         return;
       }
 

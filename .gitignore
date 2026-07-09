@@ -2,6 +2,11 @@ node_modules/
 dist/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
+*.db.pre-restore-*
+scripts/temp/
+packages/gui/dist-server/
 .DS_Store
 coverage/
 .turbo/

@@ -54,8 +54,12 @@ export function getRun(id: string) {
   return request<Run>(`/api/runs/${id}`);
 }
 
-export function getRunRequests(id: string, limit = 150) {
-  return request<RequestRecord[]>(`/api/runs/${id}/requests?limit=${limit}`);
+export function getRunRequests(id: string, options?: { resourceType?: import("@sitebench/core").ResourceType; limit?: number }) {
+  const params = new URLSearchParams();
+  if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  if (options?.resourceType) params.set("resourceType", options.resourceType);
+  const query = params.size > 0 ? `?${params.toString()}` : "";
+  return request<RequestRecord[]>(`/api/runs/${id}/requests${query}`);
 }
 
 export function startRun(payload: {

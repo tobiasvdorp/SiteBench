@@ -73,10 +73,13 @@ export type RequestRecord = {
   createdAt: string;
 };
 
+export type ResourceTypeCounts = Record<ResourceType, number>;
+
 export type RunAggregates = {
   totalRequests: number;
   errorCount: number;
   pageCount: number;
+  resourceTypeCounts: ResourceTypeCounts;
   p50: number;
   p75: number;
   p90: number;

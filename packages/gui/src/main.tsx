@@ -166,7 +166,7 @@ function App() {
 
     setProgress(null);
     void (async () => {
-      const requests = await getRunRequests(detailRunId);
+      const requests = await getRunRequests(detailRunId, { limit: 150 });
       setRecentRequests(
         requests.map((request) => ({
           url: request.url,

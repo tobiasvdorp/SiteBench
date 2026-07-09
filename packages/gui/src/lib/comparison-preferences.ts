@@ -1,6 +1,11 @@
 const COLORS_KEY = "sitebench.comparison.runColors";
 const VISIBILITY_KEY = "sitebench.comparison.visibility";
+const CHART_RANGE_MODE_KEY = "sitebench.comparison.chartRangeMode";
+const CHART_RANGE_MIN_KEY = "sitebench.comparison.chartRangeMinMs";
+const CHART_RANGE_MAX_KEY = "sitebench.comparison.chartRangeMaxMs";
 const BASELINE_KEY_PREFIX = "sitebench.comparison.baseline.";
+
+export type ChartRangeMode = "auto" | "custom";
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -47,4 +52,35 @@ export function setStoredBaseline(siteOrigin: string, runId: string | null) {
   const key = `${BASELINE_KEY_PREFIX}${siteOrigin}`;
   if (!runId) localStorage.removeItem(key);
   else localStorage.setItem(key, runId);
+}
+
+export function getStoredChartRangeMode(): ChartRangeMode {
+  const value = localStorage.getItem(CHART_RANGE_MODE_KEY);
+  return value === "custom" ? "custom" : "auto";
+}
+
+export function setStoredChartRangeMode(mode: ChartRangeMode) {
+  localStorage.setItem(CHART_RANGE_MODE_KEY, mode);
+}
+
+export function getStoredChartRangeMinMs(): number | null {
+  const value = localStorage.getItem(CHART_RANGE_MIN_KEY);
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function setStoredChartRangeMinMs(minMs: number) {
+  localStorage.setItem(CHART_RANGE_MIN_KEY, String(minMs));
+}
+
+export function getStoredChartRangeMaxMs(): number | null {
+  const value = localStorage.getItem(CHART_RANGE_MAX_KEY);
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function setStoredChartRangeMaxMs(maxMs: number) {
+  localStorage.setItem(CHART_RANGE_MAX_KEY, String(maxMs));
 }

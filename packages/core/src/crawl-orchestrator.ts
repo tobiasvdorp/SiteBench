@@ -1,6 +1,6 @@
 import { fetch } from "undici";
 import { CrawlPolicy } from "./crawl-policy.js";
-import { extractAssets, extractPageLinks } from "./html-parser.js";
+import { extractAssets, extractCssAssetUrls, extractPageLinks } from "./html-parser.js";
 import { HttpMeasurer } from "./http-measurer.js";
 import { RequestScheduler } from "./request-scheduler.js";
 import { RunRecorder } from "./run-recorder.js";
@@ -84,8 +84,13 @@ export class CrawlOrchestrator {
       const hasWork = this.pageQueue.length > 0 || this.assetQueue.length > 0;
       if (!hasWork) break;
 
-      if (this.policy.isPageLimitReached() && this.pageQueue.length === 0) {
-        await this.drainAssets();
+      if (this.policy.isPageLimitReached()) {
+        this.pageQueue = [];
+        const nextAsset = this.assetQueue.shift();
+        if (nextAsset) {
+          await this.fetchAsset(nextAsset);
+          continue;
+        }
         break;
       }
 
@@ -166,11 +171,22 @@ export class CrawlOrchestrator {
       this.config.allowImages,
     );
     for (const asset of assets) this.enqueueAsset(asset.url, asset.resourceType);
+    await this.drainAssets();
   }
 
   private async fetchAsset(item: QueueItem) {
     const result = await this.measureWithRetries(item.url, item.resourceType ?? "other");
     this.recorder.recordRequest(result);
+
+    if (result.errorClass || !result.bodyText || result.resourceType !== "css") return;
+
+    const nestedAssets = extractCssAssetUrls(
+      result.bodyText,
+      item.url,
+      this.policy.getOrigin(),
+      this.config.allowImages,
+    );
+    for (const asset of nestedAssets) this.enqueueAsset(asset.url, asset.resourceType);
   }
 
   private async measureWithRetries(url: string, resourceType: import("./types.js").ResourceType) {

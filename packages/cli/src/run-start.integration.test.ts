@@ -63,6 +63,9 @@ describe("run start CLI integration", () => {
     expect(combined).toMatch(/Requests:\s+\d+/);
     expect(combined).toMatch(/Status:\s+completed/);
     expect(combined).toMatch(/Requests:\s+\d+,\s+Errors:\s+\d+,\s+Pages:\s+\d+/);
+    const summary = combined.match(/Requests:\s+(\d+),\s+Errors:\s+\d+,\s+Pages:\s+(\d+)/);
+    expect(summary).not.toBeNull();
+    expect(Number(summary![1])).toBeGreaterThan(Number(summary![2]));
     expect(combined).toMatch(/Percentiles \(ms\): p50=/);
   });
 

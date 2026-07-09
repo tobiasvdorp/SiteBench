@@ -9,11 +9,19 @@ import {
   YAxis,
 } from "recharts";
 import type { ComparisonResult, ComparisonRunSeries } from "@sitebench/core";
+import {
+  axisTickIntervalMs,
+  bucketIndicesInRange,
+  HISTOGRAM_BUCKET_SIZE_MS,
+  HISTOGRAM_MAX_MS,
+  shouldShowAxisTick,
+} from "@sitebench/core/histogram";
 import { Eye, EyeOff, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Table,
@@ -26,16 +34,25 @@ import {
 import { cn } from "@/lib/utils";
 import {
   getStoredBaseline,
+  getStoredChartRangeMaxMs,
+  getStoredChartRangeMinMs,
+  getStoredChartRangeMode,
   getStoredRunColor,
   getStoredVisibility,
   setStoredBaseline,
+  setStoredChartRangeMaxMs,
+  setStoredChartRangeMinMs,
+  setStoredChartRangeMode,
   setStoredRunColor,
   setStoredVisibility,
+  type ChartRangeMode,
 } from "@/lib/comparison-preferences";
 import {
   bucketTotalCount,
   formatAxisTick,
   formatBucketLabel,
+  formatChartRangeLabel,
+  resolveEffectiveChartRange,
   withBaseline,
 } from "@/lib/comparison-utils";
 
@@ -118,6 +135,9 @@ export function ComparisonView({ comparison }: Props) {
   const [runColors, setRunColors] = useState<Record<string, string>>(() => resolveInitialColors(comparison));
   const [visible, setVisible] = useState<Record<string, boolean>>(() => resolveInitialVisibility(comparison));
   const [baselineRunId, setBaselineRunId] = useState<string | null>(() => resolveInitialBaseline(comparison));
+  const [rangeMode, setRangeMode] = useState<ChartRangeMode>(() => getStoredChartRangeMode());
+  const [customMinMs, setCustomMinMs] = useState(() => getStoredChartRangeMinMs() ?? 0);
+  const [customMaxMs, setCustomMaxMs] = useState(() => getStoredChartRangeMaxMs() ?? HISTOGRAM_MAX_MS);
 
   const runs = useMemo(
     () =>
@@ -133,15 +153,29 @@ export function ComparisonView({ comparison }: Props) {
     [runs, visible],
   );
 
+  const chartRange = useMemo(
+    () => resolveEffectiveChartRange(visibleRuns, rangeMode, customMinMs, customMaxMs),
+    [visibleRuns, rangeMode, customMinMs, customMaxMs],
+  );
+
   const chartData = useMemo(() => {
     if (runs.length === 0) return [];
     const bucketCount = runs[0]?.histogram.length ?? 0;
+    const { startIndex, endIndex } = bucketIndicesInRange(
+      chartRange.minMs,
+      chartRange.maxMs,
+      HISTOGRAM_BUCKET_SIZE_MS,
+      bucketCount,
+    );
+    const tickIntervalMs = axisTickIntervalMs(chartRange.maxMs - chartRange.minMs);
 
     return Array.from({ length: bucketCount }, (_, index) => {
+      if (index < startIndex || index > endIndex) return null;
+
       const bucket = runs[0].histogram[index];
       const row: ChartRow = {
         label: formatBucketLabel(bucket),
-        axisLabel: index % 10 === 0 ? formatAxisTick(bucket.minMs) : "",
+        axisLabel: shouldShowAxisTick(bucket.minMs, tickIntervalMs) ? formatAxisTick(bucket.minMs) : "",
         bucketIndex: index,
       };
 
@@ -151,8 +185,8 @@ export function ComparisonView({ comparison }: Props) {
       }
 
       return row;
-    }).filter((row) => Object.keys(row).length > 3);
-  }, [runs, visible]);
+    }).filter((row): row is ChartRow => row !== null);
+  }, [runs, visible, chartRange.minMs, chartRange.maxMs]);
 
   const axisTicks = useMemo(
     () => chartData.filter((row) => row.axisLabel).map((row) => row.label),
@@ -182,6 +216,26 @@ export function ComparisonView({ comparison }: Props) {
   const setBaseline = (runId: string | null) => {
     setBaselineRunId(runId);
     setStoredBaseline(comparison.siteOrigin, runId);
+  };
+
+  const setChartRangeMode = (mode: ChartRangeMode) => {
+    setRangeMode(mode);
+    setStoredChartRangeMode(mode);
+  };
+
+  const updateCustomMinMs = (value: number) => {
+    setCustomMinMs(value);
+    setStoredChartRangeMinMs(value);
+  };
+
+  const updateCustomMaxMs = (value: number) => {
+    setCustomMaxMs(value);
+    setStoredChartRangeMaxMs(value);
+  };
+
+  const parseRangeInput = (value: string, fallback: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
   };
 
   if (comparison.runs.length === 0) {
@@ -278,6 +332,79 @@ export function ComparisonView({ comparison }: Props) {
             ))}
           </div>
 
+          <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Latency range</Label>
+              <div className="inline-flex rounded-lg border p-1" role="group" aria-label="Chart latency range mode">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={rangeMode === "auto" ? "default" : "ghost"}
+                  className="h-7 px-3"
+                  onClick={() => setChartRangeMode("auto")}
+                  aria-pressed={rangeMode === "auto"}
+                >
+                  Auto
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={rangeMode === "custom" ? "default" : "ghost"}
+                  className="h-7 px-3"
+                  onClick={() => setChartRangeMode("custom")}
+                  aria-pressed={rangeMode === "custom"}
+                >
+                  Custom
+                </Button>
+              </div>
+            </div>
+
+            {rangeMode === "custom" && (
+              <>
+                <div className="space-y-1">
+                  <Label htmlFor="chart-range-min" className="text-xs text-muted-foreground">
+                    Min (ms)
+                  </Label>
+                  <Input
+                    id="chart-range-min"
+                    type="number"
+                    min={0}
+                    max={HISTOGRAM_MAX_MS}
+                    step={HISTOGRAM_BUCKET_SIZE_MS}
+                    className="h-8 w-28"
+                    value={customMinMs}
+                    onChange={(event) => updateCustomMinMs(parseRangeInput(event.target.value, customMinMs))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="chart-range-max" className="text-xs text-muted-foreground">
+                    Max (ms)
+                  </Label>
+                  <Input
+                    id="chart-range-max"
+                    type="number"
+                    min={HISTOGRAM_BUCKET_SIZE_MS}
+                    max={HISTOGRAM_MAX_MS}
+                    step={HISTOGRAM_BUCKET_SIZE_MS}
+                    className="h-8 w-28"
+                    value={customMaxMs}
+                    onChange={(event) => updateCustomMaxMs(parseRangeInput(event.target.value, customMaxMs))}
+                  />
+                </div>
+              </>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              Showing {formatChartRangeLabel(chartRange.minMs, chartRange.maxMs)}
+              {rangeMode === "auto" && " based on visible runs"}
+              {chartRange.isFallback && chartRange.rangeError && (
+                <span className="block text-amber-500">
+                  Invalid custom range. Using auto ({chartRange.rangeError})
+                </span>
+              )}
+            </p>
+          </div>
+
           <div className="min-h-[320px] w-full">
             {visibleCount === 0 ? (
               <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed text-muted-foreground">
@@ -326,7 +453,9 @@ export function ComparisonView({ comparison }: Props) {
             )}
           </div>
           <p className="text-xs text-muted-foreground">
-            Stacked bars show request counts per 50 ms latency bucket (0–5 s).
+            Stacked bars show request counts per {HISTOGRAM_BUCKET_SIZE_MS} ms latency bucket
+            ({formatChartRangeLabel(chartRange.minMs, chartRange.maxMs)}).
+            Latencies above {HISTOGRAM_MAX_MS} ms are grouped in the final bucket.
           </p>
         </CardContent>
       </Card>

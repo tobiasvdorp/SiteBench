@@ -88,8 +88,8 @@ export class SiteBench {
     return this.store.getRun(id);
   }
 
-  getRunRequests(id: string) {
-    return this.store.getRequestsForRun(id);
+  getRunRequests(id: string, options?: { resourceType?: import("./types.js").ResourceType; limit?: number }) {
+    return this.store.getRequestsForRun(id, options);
   }
 
   deleteRun(id: string) {
