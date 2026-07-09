@@ -1,0 +1,19 @@
+{
+  "name": "sitebench",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local HTTP performance measurement and comparison tool",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "dev:cli": "NODE_OPTIONS='--experimental-sqlite' pnpm --filter @sitebench/cli dev",
+    "dev:gui": "NODE_OPTIONS='--experimental-sqlite' pnpm --filter @sitebench/gui dev",
+    "start:gui": "NODE_OPTIONS='--experimental-sqlite' pnpm --filter @sitebench/gui start"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

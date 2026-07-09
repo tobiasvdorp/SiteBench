@@ -1,0 +1,163 @@
+import { describe, expect, it } from "vitest";
+import { createInMemoryStore } from "./database.js";
+import { ComparisonEngine } from "./comparison-engine.js";
+import { aggregatesFromLatencies } from "./database.js";
+
+describe("DatabaseStore", () => {
+  it("round-trips templates and runs with immutable snapshots", () => {
+    const store = createInMemoryStore();
+
+    const template = store.createTemplate({
+      name: "Default",
+      startUrl: "https://example.com",
+      rpsLimit: 2,
+      maxPages: 10,
+      timeLimitSeconds: null,
+      allowImages: false,
+      respectRobots: true,
+      requestTimeoutMs: 30_000,
+      connectTimeoutMs: 10_000,
+      maxRedirects: 5,
+      maxRetries: 2,
+    });
+
+    expect(store.listTemplates()).toHaveLength(1);
+
+    const snapshot = {
+      ...template,
+      templateId: template.id,
+      templateName: template.name,
+      runName: "Run A",
+      siteOrigin: "https://example.com",
+    };
+
+    const run = store.createRun("Run A", "https://example.com", snapshot);
+    store.insertRequest(run.id, {
+      url: "https://example.com",
+      resourceType: "page",
+      statusCode: 200,
+      errorClass: null,
+      errorMessage: null,
+      timings: { dnsMs: 1, connectMs: 2, ttfbMs: 50, totalMs: 80 },
+      byteCount: 100,
+      redirectCount: 0,
+    });
+
+    const aggregates = store.computeAggregatesFromRequests(run.id);
+    store.finalizeRun(run.id, aggregates, false);
+
+    const loaded = store.getRun(run.id);
+    expect(loaded?.configSnapshot.runName).toBe("Run A");
+    expect(loaded?.aggregates?.totalRequests).toBe(1);
+
+    store.updateTemplate(template.id, {
+      ...template,
+      name: "Changed",
+      maxPages: 99,
+    });
+
+    const unchangedRun = store.getRun(run.id);
+    expect(unchangedRun?.configSnapshot.maxPages).toBe(10);
+  });
+
+  it("reconciles stale running runs on startup", () => {
+    const store = createInMemoryStore();
+    const snapshot = {
+      startUrl: "https://example.com",
+      rpsLimit: 2,
+      maxPages: 10,
+      timeLimitSeconds: null,
+      allowImages: false,
+      respectRobots: true,
+      requestTimeoutMs: 30_000,
+      connectTimeoutMs: 10_000,
+      maxRedirects: 5,
+      maxRetries: 2,
+      templateId: null,
+      templateName: null,
+      runName: "Interrupted",
+      siteOrigin: "https://example.com",
+    };
+
+    const run = store.createRun("Interrupted", "https://example.com", snapshot);
+    store.insertRequest(run.id, {
+      url: "https://example.com",
+      resourceType: "page",
+      statusCode: 200,
+      errorClass: null,
+      errorMessage: null,
+      timings: { dnsMs: 1, connectMs: 2, ttfbMs: 50, totalMs: 80 },
+      byteCount: 100,
+      redirectCount: 0,
+    });
+
+    expect(store.reconcileStaleRunningRuns()).toBe(1);
+
+    const loaded = store.getRun(run.id);
+    expect(loaded?.status).toBe("stopped");
+    expect(loaded?.completedAt).not.toBeNull();
+    expect(loaded?.errorSummary).toContain("server restarted");
+    expect(loaded?.aggregates?.totalRequests).toBe(1);
+  });
+});
+
+describe("ComparisonEngine", () => {
+  it("computes baseline deltas across runs", () => {
+    const store = createInMemoryStore();
+    const engine = new ComparisonEngine(store);
+
+    const makeRun = (name: string, latencies: number[]) => {
+      const snapshot = {
+        startUrl: "https://example.com",
+        rpsLimit: 2,
+        maxPages: 10,
+        timeLimitSeconds: null,
+        allowImages: false,
+        respectRobots: true,
+        requestTimeoutMs: 30_000,
+        connectTimeoutMs: 10_000,
+        maxRedirects: 5,
+        maxRetries: 2,
+        templateId: null,
+        templateName: null,
+        runName: name,
+        siteOrigin: "https://example.com",
+      };
+      const run = store.createRun(name, "https://example.com", snapshot);
+      for (const latency of latencies) {
+        store.insertRequest(run.id, {
+          url: "https://example.com",
+          resourceType: "page",
+          statusCode: 200,
+          errorClass: null,
+          errorMessage: null,
+          timings: { dnsMs: null, connectMs: null, ttfbMs: latency, totalMs: latency + 10 },
+          byteCount: 10,
+          redirectCount: 0,
+        });
+      }
+      const aggregates = aggregatesFromLatencies(latencies, latencies.length, 0);
+      store.finalizeRun(run.id, aggregates, false);
+      return run.id;
+    };
+
+    const baselineId = makeRun("Baseline", [100, 110, 120]);
+    const compareId = makeRun("Compare", [150, 160, 170]);
+
+    const result = engine.compare("https://example.com", [
+      { runId: baselineId, isBaseline: true },
+      { runId: compareId },
+    ]);
+
+    expect(result.runs).toHaveLength(2);
+    const compare = result.runs.find((r) => r.runId === compareId);
+    expect(compare?.deltas?.p50).toBeGreaterThan(0);
+  });
+
+  it("handles single-run comparison", () => {
+    const store = createInMemoryStore();
+    const engine = new ComparisonEngine(store);
+    const result = engine.compare("https://example.com", []);
+    expect(result.runs).toHaveLength(0);
+  });
+});
