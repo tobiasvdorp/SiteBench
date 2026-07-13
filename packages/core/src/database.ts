@@ -115,6 +115,7 @@ function rowToTemplate(row: TemplateRow): Template {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...config,
+    workerCount: config.workerCount ?? DEFAULT_CRAWL_CONFIG.workerCount,
     timeLimitSeconds: config.timeLimitSeconds ?? null,
     excludePagesFromResults: config.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
   };
@@ -129,6 +130,7 @@ function rowToRun(row: RunRow): Run {
     status: row.status,
     configSnapshot: {
       ...configSnapshot,
+      workerCount: configSnapshot.workerCount ?? DEFAULT_CRAWL_CONFIG.workerCount,
       timeLimitSeconds: configSnapshot.timeLimitSeconds ?? null,
       excludePagesFromResults:
         configSnapshot.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
@@ -202,6 +204,7 @@ export class DatabaseStore {
     const config: CrawlConfig = {
       startUrl: input.startUrl,
       rpsLimit: input.rpsLimit,
+      workerCount: input.workerCount,
       maxPages: input.maxPages,
       timeLimitSeconds: input.timeLimitSeconds,
       allowImages: input.allowImages,
@@ -230,6 +233,7 @@ export class DatabaseStore {
     const config: CrawlConfig = {
       startUrl: input.startUrl,
       rpsLimit: input.rpsLimit,
+      workerCount: input.workerCount,
       maxPages: input.maxPages,
       timeLimitSeconds: input.timeLimitSeconds,
       allowImages: input.allowImages,
@@ -255,6 +259,7 @@ export class DatabaseStore {
       name: `${existing.name} (copy)`,
       startUrl: existing.startUrl,
       rpsLimit: existing.rpsLimit,
+      workerCount: existing.workerCount,
       maxPages: existing.maxPages,
       timeLimitSeconds: existing.timeLimitSeconds,
       allowImages: existing.allowImages,
@@ -455,6 +460,7 @@ export function templateInputFromTemplate(template: Template): TemplateInput {
     name: template.name,
     startUrl: template.startUrl,
     rpsLimit: template.rpsLimit,
+    workerCount: template.workerCount,
     maxPages: template.maxPages,
     timeLimitSeconds: template.timeLimitSeconds,
     allowImages: template.allowImages,

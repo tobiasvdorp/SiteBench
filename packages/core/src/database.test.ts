@@ -11,6 +11,7 @@ describe("DatabaseStore", () => {
       name: "Default",
       startUrl: "https://example.com",
       rpsLimit: 2,
+      workerCount: 1,
       maxPages: 10,
       timeLimitSeconds: null,
       allowImages: false,
@@ -69,6 +70,7 @@ describe("DatabaseStore", () => {
       name: "Robots ignored input",
       startUrl: "https://example.com",
       rpsLimit: 2,
+      workerCount: 1,
       maxPages: 10,
       timeLimitSeconds: null,
       allowImages: false,
@@ -98,6 +100,7 @@ describe("DatabaseStore", () => {
     const snapshot = {
       startUrl: "https://example.com",
       rpsLimit: 2,
+      workerCount: 1,
       maxPages: 10,
       timeLimitSeconds: null,
       allowImages: true,
@@ -144,6 +147,7 @@ describe("DatabaseStore", () => {
     const snapshot = {
       startUrl: "https://example.com",
       rpsLimit: 2,
+      workerCount: 1,
       maxPages: 10,
       timeLimitSeconds: null,
       allowImages: false,
@@ -190,6 +194,7 @@ describe("ComparisonEngine", () => {
       const snapshot = {
         startUrl: "https://example.com",
         rpsLimit: 2,
+        workerCount: 1,
         maxPages: 10,
         timeLimitSeconds: null,
         allowImages: false,

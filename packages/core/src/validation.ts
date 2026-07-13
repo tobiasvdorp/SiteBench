@@ -10,6 +10,7 @@ import {
   DEFAULT_RESPECT_ROBOTS,
   DEFAULT_RPS_LIMIT,
   DEFAULT_TIME_LIMIT_SECONDS,
+  DEFAULT_WORKER_COUNT,
 } from "./defaults.js";
 import type { CrawlConfig, ValidationError, ValidationResult } from "./types.js";
 
@@ -118,6 +119,8 @@ export function validateCrawlConfig(
   const startUrl = validateUrl(input.startUrl, "startUrl", errors);
   const rpsLimit =
     validatePositiveInt(input.rpsLimit, "rpsLimit", errors, 1, 100) ?? DEFAULT_RPS_LIMIT;
+  const workerCount =
+    validatePositiveInt(input.workerCount, "workerCount", errors, 1, 20) ?? DEFAULT_WORKER_COUNT;
 
   let maxPages = validateOptionalLimit(input.maxPages, "maxPages", errors, 1, 10_000);
   if (maxPages === null && applyDefaultMaxPages && input.maxPages === undefined) {
@@ -164,6 +167,7 @@ export function validateCrawlConfig(
     config: {
       startUrl: startUrl!,
       rpsLimit,
+      workerCount,
       maxPages,
       timeLimitSeconds,
       allowImages,
@@ -181,6 +185,7 @@ export function mergeCrawlConfig(base: CrawlConfig, overrides: PartialCrawlConfi
   return {
     startUrl: overrides.startUrl ?? base.startUrl,
     rpsLimit: overrides.rpsLimit ?? base.rpsLimit,
+    workerCount: overrides.workerCount ?? base.workerCount,
     maxPages: overrides.maxPages !== undefined ? overrides.maxPages : base.maxPages,
     timeLimitSeconds:
       overrides.timeLimitSeconds !== undefined ? overrides.timeLimitSeconds : base.timeLimitSeconds,

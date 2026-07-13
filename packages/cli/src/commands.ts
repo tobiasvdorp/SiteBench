@@ -10,6 +10,7 @@ import {
   DEFAULT_RESPECT_ROBOTS,
   DEFAULT_RPS_LIMIT,
   DEFAULT_TIME_LIMIT_SECONDS,
+  DEFAULT_WORKER_COUNT,
   SiteBench,
   StartFailure,
   ValidationFailure,
@@ -39,6 +40,7 @@ function parseOverrides(command: Command): Partial<CrawlConfig> {
 
   if (opts.url) overrides.startUrl = opts.url;
   if (opts.rps !== undefined) overrides.rpsLimit = Number(opts.rps);
+  if (opts.workers !== undefined) overrides.workerCount = Number(opts.workers);
   if (opts.maxPages === false) overrides.maxPages = null;
   else if (opts.maxPages !== undefined) overrides.maxPages = Number(opts.maxPages);
   if (opts.timeLimitSeconds !== undefined) overrides.timeLimitSeconds = Number(opts.timeLimitSeconds);
@@ -61,6 +63,7 @@ function templateInputFromOptions(name: string, command: Command): TemplateInput
     name,
     startUrl: opts.url,
     rpsLimit: Number(opts.rps ?? DEFAULT_RPS_LIMIT),
+    workerCount: Number(opts.workers ?? DEFAULT_WORKER_COUNT),
     maxPages: opts.maxPages === false ? null : Number(opts.maxPages ?? DEFAULT_MAX_PAGES),
     timeLimitSeconds:
       opts.timeLimitSeconds === undefined ? DEFAULT_TIME_LIMIT_SECONDS : Number(opts.timeLimitSeconds),
@@ -81,7 +84,7 @@ function printTemplate(template: ReturnType<SiteBench["getTemplate"]>) {
   if (!template) return;
   console.log(`${template.id}\t${template.name}\t${template.startUrl}`);
   console.log(
-    `  rps=${template.rpsLimit} maxPages=${template.maxPages ?? "none"} timeLimitSeconds=${template.timeLimitSeconds ?? "none"} allowImages=${template.allowImages} excludePagesFromResults=${template.excludePagesFromResults} respectRobots=${template.respectRobots}`,
+    `  rps=${template.rpsLimit} workers=${template.workerCount} maxPages=${template.maxPages ?? "none"} timeLimitSeconds=${template.timeLimitSeconds ?? "none"} allowImages=${template.allowImages} excludePagesFromResults=${template.excludePagesFromResults} respectRobots=${template.respectRobots}`,
   );
 }
 
@@ -111,6 +114,7 @@ export function createCli(program: Command) {
       console.log(`  maxPages: ${DEFAULT_MAX_PAGES}`);
       console.log(`  timeLimitSeconds: ${DEFAULT_TIME_LIMIT_SECONDS ?? "none"}`);
       console.log(`  rpsLimit: ${DEFAULT_RPS_LIMIT}`);
+      console.log(`  workerCount: ${DEFAULT_WORKER_COUNT}`);
       console.log(`  requestTimeoutMs: ${DEFAULT_REQUEST_TIMEOUT_MS}`);
       console.log(`  connectTimeoutMs: ${DEFAULT_CONNECT_TIMEOUT_MS}`);
       console.log(`  maxRedirects: ${DEFAULT_MAX_REDIRECTS}`);
@@ -138,6 +142,7 @@ export function createCli(program: Command) {
     .requiredOption("--name <name>", "Template name")
     .requiredOption("--url <url>", "Start URL")
     .option("--rps <number>", "Requests per second", String(DEFAULT_RPS_LIMIT))
+    .option("--workers <number>", "Concurrent request workers", String(DEFAULT_WORKER_COUNT))
     .option("--max-pages <number>", "Maximum pages to crawl", String(DEFAULT_MAX_PAGES))
     .option("--no-max-pages", "Do not apply a page limit; requires --time-limit-seconds")
     .option("--time-limit-seconds <number>", "Maximum run duration in seconds")
@@ -169,6 +174,7 @@ export function createCli(program: Command) {
     .requiredOption("--name <name>", "Template name")
     .requiredOption("--url <url>", "Start URL")
     .option("--rps <number>", "Requests per second")
+    .option("--workers <number>", "Concurrent request workers")
     .option("--max-pages <number>", "Maximum pages to crawl")
     .option("--no-max-pages", "Do not apply a page limit; requires --time-limit-seconds")
     .option("--time-limit-seconds <number>", "Maximum run duration in seconds")
@@ -225,6 +231,7 @@ export function createCli(program: Command) {
     .option("--template <id>", "Template id")
     .option("--url <url>", "Override start URL")
     .option("--rps <number>", "Override RPS")
+    .option("--workers <number>", "Override concurrent request workers")
     .option("--max-pages <number>", "Override max pages")
     .option("--no-max-pages", "Run without a page limit; requires --time-limit-seconds or a template time limit")
     .option("--time-limit-seconds <number>", "Override maximum run duration in seconds")

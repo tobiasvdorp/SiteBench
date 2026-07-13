@@ -29,6 +29,7 @@ export function TemplateForm({ defaults, template, onSave }: Props) {
     name: "",
     startUrl: "",
     rpsLimit: defaults?.rpsLimit ?? 2,
+    workerCount: defaults?.workerCount ?? 1,
     maxPages: String(defaults?.maxPages ?? 50),
     timeLimitSeconds: defaults?.timeLimitSeconds ? String(defaults.timeLimitSeconds) : "",
     allowImages: defaults?.allowImages ?? false,
@@ -54,6 +55,7 @@ export function TemplateForm({ defaults, template, onSave }: Props) {
       name: template.name,
       startUrl: template.startUrl,
       rpsLimit: template.rpsLimit,
+      workerCount: template.workerCount,
       maxPages: template.maxPages === null ? "" : String(template.maxPages),
       timeLimitSeconds: template.timeLimitSeconds === null ? "" : String(template.timeLimitSeconds),
       allowImages: template.allowImages,
@@ -122,6 +124,19 @@ export function TemplateForm({ defaults, template, onSave }: Props) {
                   min={1}
                   value={form.rpsLimit}
                   onChange={(e) => setForm({ ...form, rpsLimit: Number(e.target.value) })}
+                  className="font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="template-worker-count">Workers</Label>
+                <Input
+                  id="template-worker-count"
+                  name="workerCount"
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={form.workerCount}
+                  onChange={(e) => setForm({ ...form, workerCount: Number(e.target.value) })}
                   className="font-mono"
                 />
               </div>

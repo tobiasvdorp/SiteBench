@@ -13,6 +13,10 @@ type QueueItem = {
   resourceType?: import("./types.js").ResourceType;
 };
 
+type WorkItem =
+  | { kind: "page"; url: string }
+  | { kind: "asset"; item: QueueItem };
+
 export type OrchestratorRunResult = {
   truncated: boolean;
   truncationReason: TruncationReason | null;
@@ -41,6 +45,9 @@ export class CrawlOrchestrator {
   private assetQueue: QueueItem[] = [];
   private stopped = false;
   private timeLimitReached = false;
+  private inFlight = 0;
+  private pagesInFlight = 0;
+  private waiters: Array<() => void> = [];
 
   constructor(options: OrchestratorOptions) {
     this.config = options.config;
@@ -70,43 +77,14 @@ export class CrawlOrchestrator {
 
   stop() {
     this.stopped = true;
+    this.notifyWorkAvailable();
   }
 
   async run(): Promise<OrchestratorRunResult> {
     await this.initialize();
 
-    while (!this.stopped && !this.abortSignal?.aborted) {
-      if (this.isTimeLimitReached()) {
-        this.timeLimitReached = true;
-        break;
-      }
-
-      const hasWork = this.pageQueue.length > 0 || this.assetQueue.length > 0;
-      if (!hasWork) break;
-
-      if (this.policy.isPageLimitReached()) {
-        this.pageQueue = [];
-        const nextAsset = this.assetQueue.shift();
-        if (nextAsset) {
-          await this.fetchAsset(nextAsset);
-          continue;
-        }
-        break;
-      }
-
-      const nextPage = this.pageQueue.shift();
-      if (nextPage) {
-        await this.fetchPage(nextPage);
-        continue;
-      }
-
-      const nextAsset = this.assetQueue.shift();
-      if (nextAsset) await this.fetchAsset(nextAsset);
-    }
-
-    if (this.pageQueue.length > 0 || this.assetQueue.length > 0) {
-      await this.drainAssets();
-    }
+    const workers = Array.from({ length: this.config.workerCount }, () => this.runWorker());
+    await Promise.all(workers);
 
     const queueHasPages = this.pageQueue.length > 0;
     const truncationReason = this.policy.getTruncationReason(queueHasPages, this.timeLimitReached);
@@ -116,23 +94,77 @@ export class CrawlOrchestrator {
     };
   }
 
+  private async runWorker() {
+    while (!this.stopped && !this.abortSignal?.aborted) {
+      if (this.isTimeLimitReached()) {
+        this.timeLimitReached = true;
+        return;
+      }
+
+      const work = this.claimWork();
+      if (!work) {
+        if (this.inFlight === 0 && !this.hasQueuedWork()) return;
+        await this.waitForWork();
+        continue;
+      }
+
+      try {
+        if (work.kind === "page") await this.fetchPage(work.url);
+        else await this.fetchAsset(work.item);
+      } finally {
+        this.inFlight -= 1;
+        if (work.kind === "page") this.pagesInFlight -= 1;
+        this.notifyWorkAvailable();
+      }
+    }
+  }
+
+  private claimWork(): WorkItem | null {
+    if (this.policy.isPageLimitReached()) this.pageQueue = [];
+
+    if (!this.policy.isPageLimitReached() && this.canStartPageFetch()) {
+      const url = this.pageQueue.shift();
+      if (url) {
+        this.inFlight += 1;
+        this.pagesInFlight += 1;
+        return { kind: "page", url };
+      }
+    }
+
+    const asset = this.assetQueue.shift();
+    if (!asset) return null;
+
+    this.inFlight += 1;
+    return { kind: "asset", item: asset };
+  }
+
+  private canStartPageFetch() {
+    const maxPages = this.config.maxPages;
+    if (maxPages === null) return true;
+    return this.policy.getPagesFetched() + this.pagesInFlight < maxPages;
+  }
+
+  private hasQueuedWork() {
+    return this.pageQueue.length > 0 || this.assetQueue.length > 0;
+  }
+
+  private waitForWork() {
+    return new Promise<void>((resolve) => {
+      this.waiters.push(resolve);
+    });
+  }
+
+  private notifyWorkAvailable() {
+    const waiters = this.waiters;
+    this.waiters = [];
+    for (const wake of waiters) wake();
+  }
+
   private isTimeLimitReached() {
     const limit = this.config.timeLimitSeconds;
     if (limit === null) return false;
     const elapsedSeconds = (this.now() - this.startedAtMs) / 1000;
     return elapsedSeconds >= limit;
-  }
-
-  private async drainAssets() {
-    while (this.assetQueue.length > 0 && !this.stopped && !this.abortSignal?.aborted) {
-      if (this.isTimeLimitReached()) {
-        this.timeLimitReached = true;
-        break;
-      }
-      const item = this.assetQueue.shift();
-      if (!item) break;
-      await this.fetchAsset(item);
-    }
   }
 
   private enqueuePage(url: string) {
@@ -142,6 +174,7 @@ export class CrawlOrchestrator {
     this.pageQueue.push(normalizeUrl(url)!);
     this.recorder.setPagesDiscovered(this.policy.getPagesFetched() + this.pageQueue.length);
     this.recorder.setQueueSize(this.pageQueue.length + this.assetQueue.length);
+    this.notifyWorkAvailable();
   }
 
   private enqueueAsset(url: string, resourceType: import("./types.js").ResourceType) {
@@ -150,6 +183,7 @@ export class CrawlOrchestrator {
     this.policy.markAssetQueued(url);
     this.assetQueue.push({ url: normalizeUrl(url)!, type: "asset", resourceType });
     this.recorder.setQueueSize(this.pageQueue.length + this.assetQueue.length);
+    this.notifyWorkAvailable();
   }
 
   private async fetchPage(url: string) {
@@ -171,7 +205,6 @@ export class CrawlOrchestrator {
       this.config.allowImages,
     );
     for (const asset of assets) this.enqueueAsset(asset.url, asset.resourceType);
-    await this.drainAssets();
   }
 
   private async fetchAsset(item: QueueItem) {

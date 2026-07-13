@@ -27,6 +27,7 @@ type OverrideFields = Pick<
   CrawlConfig,
   | "startUrl"
   | "rpsLimit"
+  | "workerCount"
   | "maxPages"
   | "timeLimitSeconds"
   | "allowImages"
@@ -46,6 +47,7 @@ function templateToOverrides(template: Template): OverrideFields {
   return {
     startUrl: template.startUrl,
     rpsLimit: template.rpsLimit,
+    workerCount: template.workerCount,
     maxPages: template.maxPages,
     timeLimitSeconds: template.timeLimitSeconds,
     allowImages: template.allowImages,
@@ -76,6 +78,7 @@ function diffOverrides(base: OverrideFields, current: OverrideFormFields): Parti
   const overrides: Partial<CrawlConfig> = {};
   if (current.startUrl !== base.startUrl) overrides.startUrl = current.startUrl;
   if (current.rpsLimit !== base.rpsLimit) overrides.rpsLimit = current.rpsLimit;
+  if (current.workerCount !== base.workerCount) overrides.workerCount = current.workerCount;
   if (currentMaxPages !== base.maxPages) overrides.maxPages = currentMaxPages;
   if (currentTimeLimitSeconds !== base.timeLimitSeconds) overrides.timeLimitSeconds = currentTimeLimitSeconds;
   if (current.allowImages !== base.allowImages) overrides.allowImages = current.allowImages;
@@ -92,6 +95,7 @@ function diffOverrides(base: OverrideFields, current: OverrideFormFields): Parti
 function formatTemplateConfigSummary(template: Template) {
   const parts = [
     `${template.rpsLimit} RPS`,
+    `${template.workerCount} workers`,
     template.maxPages === null ? "no page limit" : `${template.maxPages} pages`,
     template.timeLimitSeconds === null ? "no time limit" : `${template.timeLimitSeconds}s`,
     template.allowImages ? "images" : "no images",
@@ -263,6 +267,19 @@ export function RunLauncher({ templates, onStart, onEditTemplate, onCreateTempla
                   min={1}
                   value={overrides.rpsLimit}
                   onChange={(e) => setOverrides({ ...overrides, rpsLimit: Number(e.target.value) })}
+                  className="font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="override-worker-count">Workers</Label>
+                <Input
+                  id="override-worker-count"
+                  name="workerCount"
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={overrides.workerCount}
+                  onChange={(e) => setOverrides({ ...overrides, workerCount: Number(e.target.value) })}
                   className="font-mono"
                 />
               </div>

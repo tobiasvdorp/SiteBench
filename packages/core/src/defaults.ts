@@ -3,6 +3,7 @@ import type { CrawlConfig } from "./types.js";
 export const DEFAULT_MAX_PAGES = 50;
 export const DEFAULT_TIME_LIMIT_SECONDS: number | null = null;
 export const DEFAULT_RPS_LIMIT = 2;
+export const DEFAULT_WORKER_COUNT = 1;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 export const DEFAULT_MAX_REDIRECTS = 5;
@@ -14,6 +15,7 @@ export const DEFAULT_RESPECT_ROBOTS = true;
 export const DEFAULT_CRAWL_CONFIG: CrawlConfig = {
   startUrl: "",
   rpsLimit: DEFAULT_RPS_LIMIT,
+  workerCount: DEFAULT_WORKER_COUNT,
   maxPages: DEFAULT_MAX_PAGES,
   timeLimitSeconds: DEFAULT_TIME_LIMIT_SECONDS,
   allowImages: DEFAULT_ALLOW_IMAGES,

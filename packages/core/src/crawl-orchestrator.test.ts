@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { CrawlOrchestrator } from "./crawl-orchestrator.js";
 import { createInMemoryStore } from "./database.js";
+import { HttpMeasurer } from "./http-measurer.js";
 import { RunRecorder } from "./run-recorder.js";
 import { startFixtureServer, type FixtureServer } from "./test-support/fixture-server.js";
 import type { ResourceType } from "./types.js";
+import { sleep } from "./utils.js";
 
 function createSnapshot(
   baseUrl: string,
@@ -14,6 +16,7 @@ function createSnapshot(
   return {
     startUrl: `${baseUrl}/`,
     rpsLimit: 20,
+    workerCount: 1,
     maxPages,
     timeLimitSeconds: null,
     allowImages,
@@ -157,11 +160,48 @@ describe("CrawlOrchestrator", () => {
     expect(aggregates.resourceTypeCounts.page).toBe(0);
   });
 
+  it("runs multiple requests concurrently when workerCount is greater than 1", async () => {
+    const store = createInMemoryStore();
+    const snapshot = {
+      ...createSnapshot(baseUrl, false, 1),
+      workerCount: 4,
+      rpsLimit: 100,
+    };
+    const run = store.createRun("parallel-workers", baseUrl, snapshot);
+    const recorder = new RunRecorder(store, run.id, { excludePagesFromResults: false });
+    const baseMeasurer = new HttpMeasurer(snapshot);
+    let concurrent = 0;
+    let maxConcurrent = 0;
+
+    const measurer = {
+      probeStartUrl: baseMeasurer.probeStartUrl.bind(baseMeasurer),
+      measure: async (url: string, resourceType?: ResourceType) => {
+        concurrent += 1;
+        maxConcurrent = Math.max(maxConcurrent, concurrent);
+        await sleep(50);
+        concurrent -= 1;
+        return baseMeasurer.measure(url, resourceType);
+      },
+    } as HttpMeasurer;
+
+    const orchestrator = new CrawlOrchestrator({
+      config: snapshot,
+      origin: baseUrl,
+      recorder,
+      measurer,
+    });
+
+    await orchestrator.run();
+
+    expect(maxConcurrent).toBeGreaterThan(1);
+  });
+
   it("stops cleanly when the time limit is reached", async () => {
     const store = createInMemoryStore();
     const snapshot = {
       startUrl: `${baseUrl}/`,
       rpsLimit: 20,
+      workerCount: 1,
       maxPages: null,
       timeLimitSeconds: 1,
       allowImages: false,

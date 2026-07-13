@@ -39,6 +39,7 @@ describe("RunRecorder", () => {
     const run = store.createRun("run", "https://example.com", {
       startUrl: "https://example.com/",
       rpsLimit: 2,
+      workerCount: 1,
       maxPages: 1,
       timeLimitSeconds: null,
       allowImages: false,
@@ -68,6 +69,7 @@ describe("RunRecorder", () => {
     const run = store.createRun("run", "https://example.com", {
       startUrl: "https://example.com/",
       rpsLimit: 2,
+      workerCount: 1,
       maxPages: 2,
       timeLimitSeconds: null,
       allowImages: false,

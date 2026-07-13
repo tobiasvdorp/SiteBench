@@ -122,6 +122,7 @@ export class SiteBench {
         {
           startUrl: input.overrides.startUrl ?? "",
           rpsLimit: input.overrides.rpsLimit ?? DEFAULT_CRAWL_CONFIG.rpsLimit,
+          workerCount: input.overrides.workerCount ?? DEFAULT_CRAWL_CONFIG.workerCount,
           maxPages:
             input.overrides.maxPages ??
             (input.overrides.timeLimitSeconds ? null : DEFAULT_CRAWL_CONFIG.maxPages),

@@ -24,6 +24,7 @@ export type TruncationReason = "max-pages" | "time-limit";
 export type CrawlConfig = {
   startUrl: string;
   rpsLimit: number;
+  workerCount: number;
   maxPages: number | null;
   timeLimitSeconds: number | null;
   allowImages: boolean;

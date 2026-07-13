@@ -71,6 +71,25 @@ describe("validateCrawlConfig", () => {
       expect(result.errors.some((error) => error.field === "limits")).toBe(true);
     }
   });
+
+  it("accepts valid worker count", () => {
+    const result = validateCrawlConfig({
+      startUrl: "https://example.com",
+      workerCount: 4,
+      maxPages: 10,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.config.workerCount).toBe(4);
+  });
+
+  it("rejects invalid worker count", () => {
+    const result = validateCrawlConfig({
+      startUrl: "https://example.com",
+      workerCount: 0,
+      maxPages: 10,
+    });
+    expect(result.ok).toBe(false);
+  });
 });
 
 describe("validateRunName", () => {

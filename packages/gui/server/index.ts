@@ -51,6 +51,7 @@ function templateInputFromBody(body: Record<string, unknown>): TemplateInput {
     name: String(body.name ?? ""),
     startUrl: String(body.startUrl ?? ""),
     rpsLimit: Number(body.rpsLimit ?? DEFAULT_CRAWL_CONFIG.rpsLimit),
+    workerCount: Number(body.workerCount ?? DEFAULT_CRAWL_CONFIG.workerCount),
     maxPages: body.maxPages === null ? null : Number(body.maxPages ?? DEFAULT_CRAWL_CONFIG.maxPages),
     timeLimitSeconds:
       body.timeLimitSeconds === null || body.timeLimitSeconds === undefined

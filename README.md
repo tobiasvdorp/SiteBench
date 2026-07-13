@@ -15,6 +15,7 @@ Local HTTP performance measurement and comparison for public websites. SiteBench
 | `maxPages` | 50 | Stops crawl when reached; may be omitted when `timeLimitSeconds` is set |
 | `timeLimitSeconds` | none | Optional run duration limit in seconds |
 | `rpsLimit` | 2 | Global cap across pages and assets |
+| `workerCount` | 1 | Concurrent request workers per run |
 | `requestTimeoutMs` | 30000 | Per-request ceiling |
 | `connectTimeoutMs` | 10000 | Must be ≤ request timeout |
 | `maxRedirects` | 5 | Redirect chain limit |

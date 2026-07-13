@@ -212,6 +212,10 @@ export function RunDetailSheet({
                 <Metric className="text-sm font-medium">{run.configSnapshot.rpsLimit}</Metric>
               </div>
               <div>
+                <div className="text-[0.6rem] font-medium uppercase tracking-widest text-muted-foreground">Workers</div>
+                <Metric className="text-sm font-medium">{run.configSnapshot.workerCount}</Metric>
+              </div>
+              <div>
                 <div className="text-[0.6rem] font-medium uppercase tracking-widest text-muted-foreground">Timeout</div>
                 <Metric className="text-sm font-medium" unit="ms">
                   {run.configSnapshot.requestTimeoutMs}
