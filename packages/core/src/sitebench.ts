@@ -1,7 +1,8 @@
 import { ComparisonEngine } from "./comparison-engine.js";
 import { CrawlOrchestrator } from "./crawl-orchestrator.js";
 import { DatabaseStore } from "./database.js";
-import { DEFAULT_CRAWL_CONFIG, DEFAULT_DB_PATH } from "./defaults.js";
+import { DEFAULT_DB_PATH } from "./db-path.js";
+import { DEFAULT_CRAWL_CONFIG } from "./defaults.js";
 import { HttpMeasurer } from "./http-measurer.js";
 import { RunRecorder } from "./run-recorder.js";
 import type {
@@ -237,5 +238,6 @@ export class StartFailure extends Error {
   }
 }
 
-export { DEFAULT_CRAWL_CONFIG, DEFAULT_DB_PATH } from "./defaults.js";
+export { DEFAULT_DB_PATH } from "./db-path.js";
+export { DEFAULT_CRAWL_CONFIG } from "./defaults.js";
 export type { ComparisonSelection } from "./comparison-engine.js";

@@ -28,4 +28,3 @@ export const DEFAULT_CRAWL_CONFIG: CrawlConfig = {
 export const HISTOGRAM_BUCKET_SIZE_MS = 50;
 export const HISTOGRAM_MAX_MS = 5000;
 
-export const DEFAULT_DB_PATH = "sitebench.db";

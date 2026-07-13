@@ -10,7 +10,7 @@ import {
   type TemplateInput,
 } from "@sitebench/core";
 
-const bench = new SiteBench({ dbPath: process.env.SITEBENCH_DB });
+const bench = new SiteBench({ dbPath: process.env.SITEBENCH_DB ?? undefined });
 
 type ProgressPayload = {
   type: "progress";

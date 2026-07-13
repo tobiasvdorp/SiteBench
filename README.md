@@ -61,7 +61,7 @@ pnpm dev:cli run delete <run-id>
 
 Environment variables:
 
-- `SITEBENCH_DB` — SQLite file path (default: `./sitebench.db` in cwd)
+- `SITEBENCH_DB` — SQLite file path (default: `./sitebench.db` in the repository root)
 
 Validation and connectivity failures exit with code 1.
 
