@@ -10,7 +10,7 @@ function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>) {
 }
 
 function TableHeader({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
-  return <thead className={cn("[&_tr]:border-b", className)} {...props} />;
+  return <thead className={cn("[&_tr]:border-b [&_tr]:border-border/60", className)} {...props} />;
 }
 
 function TableBody({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
@@ -20,7 +20,10 @@ function TableBody({ className, ...props }: HTMLAttributes<HTMLTableSectionEleme
 function TableRow({ className, ...props }: HTMLAttributes<HTMLTableRowElement>) {
   return (
     <tr
-      className={cn("border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted", className)}
+      className={cn(
+        "border-b border-border/40 transition-colors hover:bg-accent/30 data-[state=selected]:bg-accent/50",
+        className,
+      )}
       {...props}
     />
   );
@@ -30,7 +33,7 @@ function TableHead({ className, ...props }: ThHTMLAttributes<HTMLTableCellElemen
   return (
     <th
       className={cn(
-        "h-10 px-3 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0",
+        "h-9 px-3 text-left align-middle text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground [&:has([role=checkbox])]:pr-0",
         className,
       )}
       {...props}

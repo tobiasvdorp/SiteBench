@@ -57,7 +57,10 @@ function templateInputFromBody(body: Record<string, unknown>): TemplateInput {
         ? DEFAULT_CRAWL_CONFIG.timeLimitSeconds
         : Number(body.timeLimitSeconds),
     allowImages: Boolean(body.allowImages ?? DEFAULT_CRAWL_CONFIG.allowImages),
-    respectRobots: Boolean(body.respectRobots ?? DEFAULT_CRAWL_CONFIG.respectRobots),
+    excludePagesFromResults: Boolean(
+      body.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
+    ),
+    respectRobots: true,
     requestTimeoutMs: Number(body.requestTimeoutMs ?? DEFAULT_CRAWL_CONFIG.requestTimeoutMs),
     connectTimeoutMs: Number(body.connectTimeoutMs ?? DEFAULT_CRAWL_CONFIG.connectTimeoutMs),
     maxRedirects: Number(body.maxRedirects ?? DEFAULT_CRAWL_CONFIG.maxRedirects),

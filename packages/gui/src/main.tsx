@@ -1,6 +1,6 @@
-import { StrictMode, useCallback, useEffect, useMemo, useState } from "react";
+import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { AlertCircle, CheckCircle2, Gauge, Plus, Trash2 } from "lucide-react";
+import { Copy, GitCompareArrows, Layers, Plus, Trash2 } from "lucide-react";
 import {
   compare,
   createTemplate,
@@ -19,38 +19,21 @@ import {
   updateTemplate,
 } from "./lib/api";
 import type { ComparisonResult, CrawlConfig, RequestProgressItem, Run, Template, TemplateInput } from "@sitebench/core";
+import { AppAlert, AppShell, type Tab } from "./components/app/AppShell";
 import { ComparisonView } from "./components/ComparisonView";
 import { RunDetailSheet, type RunProgressState } from "./components/RunDetailSheet";
-import { TemplateForm } from "./components/TemplateForm";
+import { RunHistory } from "./components/RunHistory";
 import { RunLauncher } from "./components/RunLauncher";
+import { RunSelectionBar } from "./components/RunSelectionBar";
+import { TemplateForm } from "./components/TemplateForm";
 import { getStoredBaseline, setStoredBaseline } from "./lib/comparison-preferences";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SectionHeader } from "@/components/ui/section-header";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import "./styles.css";
-
-type Tab = "runs" | "compare" | "templates";
 
 const TAB_PATHS: Record<Tab, string> = {
   runs: "/runs",
@@ -95,6 +78,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [stoppingRun, setStoppingRun] = useState(false);
+  const runLauncherRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (window.location.pathname === "/") {
@@ -308,53 +292,30 @@ function App() {
     navigateToTab("compare");
   };
 
-  const statusVariant = (status: Run["status"]) => {
-    if (status === "completed") return "secondary" as const;
-    if (status === "running") return "default" as const;
-    if (status === "failed") return "destructive" as const;
-    return "muted" as const;
+  const handleRemoveFromSelection = (runId: string) => {
+    setSelectedRunIds((current) => current.filter((id) => id !== runId));
+    if (baselineRunId === runId) handleBaselineChange(null);
   };
 
+  const scrollToRunLauncher = () => {
+    navigateToTab("runs");
+    requestAnimationFrame(() => {
+      runLauncherRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
+  const alerts = (
+    <>
+      {error && <AppAlert variant="error" message={error} onDismiss={() => setError(null)} />}
+      {notice && <AppAlert variant="notice" message={notice} onDismiss={() => setNotice(null)} />}
+    </>
+  );
+
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-6xl space-y-6 p-6">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Gauge className="size-6 text-primary" />
-              <h1 className="text-2xl font-semibold tracking-tight">SiteBench</h1>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Measure HTTP performance, compare runs, and tune templates as needed
-            </p>
-          </div>
-        </header>
-
-        {error && (
-          <Alert variant="destructive">
-            <AlertCircle className="size-4" />
-            <AlertDescription>
-              {error.split("\n").map((line, index) => (
-                <div key={index}>{line}</div>
-              ))}
-            </AlertDescription>
-          </Alert>
-        )}
-        {notice && (
-          <Alert variant="success">
-            <CheckCircle2 className="size-4" />
-            <AlertDescription>{notice}</AlertDescription>
-          </Alert>
-        )}
-
-        <Tabs value={tab} onValueChange={(value) => navigateToTab(value as Tab)}>
-          <TabsList>
-            <TabsTrigger value="runs">Runs</TabsTrigger>
-            <TabsTrigger value="compare">Compare</TabsTrigger>
-            <TabsTrigger value="templates">Templates</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="runs" className="mt-6 space-y-6">
+    <AppShell tab={tab} onNavigate={navigateToTab} onNewRun={scrollToRunLauncher} alerts={alerts}>
+      <Tabs value={tab}>
+        <TabsContent value="runs" className="mt-0 space-y-6">
+          <div ref={runLauncherRef} className="animate-fade-in-up stagger-1">
             <RunLauncher
               templates={templates}
               onStart={handleStartRun}
@@ -364,355 +325,169 @@ function App() {
                 navigateToTab("templates");
               }}
             />
+          </div>
 
+          <div className="animate-fade-in-up stagger-2 space-y-4">
+            <SectionHeader
+              title="Run history"
+              description="Click any run for details. Select completed or stopped runs to compare."
+            />
+            <RunHistory
+              runs={runs}
+              selectedRunIds={selectedRunIds}
+              onSelectRun={(runId, checked) => {
+                setSelectedRunIds((current) =>
+                  checked ? [...current, runId] : current.filter((id) => id !== runId),
+                );
+              }}
+              onOpenRun={handleOpenRunDetail}
+              onDeleteRun={async (runId) => {
+                await deleteRun(runId);
+                if (detailRunId === runId) setDetailRunId(null);
+                if (activeRunId === runId) setActiveRunId(null);
+                handleRemoveFromSelection(runId);
+                await refreshRuns();
+              }}
+              isComparableRun={isComparableRun}
+              isLiveRunStatus={isLiveRunStatus}
+            />
+            <RunSelectionBar
+              runs={runs}
+              selectedRunIds={selectedRunIds}
+              baselineRunId={baselineRunId}
+              onBaselineChange={handleBaselineChange}
+              onRemoveRun={handleRemoveFromSelection}
+              onCompare={() => void handleCompare()}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="compare" className="mt-0 space-y-6">
+          {selectedRunIds.length > 0 ? (
+            <RunSelectionBar
+              runs={runs}
+              selectedRunIds={selectedRunIds}
+              baselineRunId={baselineRunId}
+              onBaselineChange={handleBaselineChange}
+              onRemoveRun={handleRemoveFromSelection}
+              onCompare={() => void handleCompare()}
+              compact
+            />
+          ) : (
+            <EmptyState
+              icon={<GitCompareArrows className="size-8" />}
+              title="No runs selected"
+              description="Select completed or stopped runs on the Runs tab, then compare their latency distributions."
+              action={
+                <Button variant="outline" onClick={() => navigateToTab("runs")}>
+                  Go to Runs
+                </Button>
+              }
+            />
+          )}
+
+          {comparison ? (
+            <ComparisonView comparison={comparison} />
+          ) : selectedRunIds.length > 0 ? (
             <Card>
-              <CardHeader>
-                <CardTitle>Run history</CardTitle>
-                <CardDescription>
-                  Click any run for details. Use the checkboxes to compare completed or stopped runs with stored data.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-12">Select</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Notes</TableHead>
-                      <TableHead>Started</TableHead>
-                      <TableHead>Pages</TableHead>
-                      <TableHead>Requests</TableHead>
-                      <TableHead>p50</TableHead>
-                      <TableHead className="w-20">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {runs.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
-                          No runs yet. Start a run to measure your site.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      runs.map((run) => {
-                        const selectable = isComparableRun(run);
-                        return (
-                          <TableRow
-                            key={run.id}
-                            className="cursor-pointer hover:bg-accent/50"
-                            onClick={() => handleOpenRunDetail(run)}
-                            onKeyDown={(event) => {
-                              if (event.key !== "Enter" && event.key !== " ") return;
-                              event.preventDefault();
-                              handleOpenRunDetail(run);
-                            }}
-                            tabIndex={0}
-                            aria-label={`View details for run ${run.name}`}
-                          >
-                            <TableCell onClick={(event) => event.stopPropagation()}>
-                              <Checkbox
-                                id={`run-select-${run.id}`}
-                                checked={selectedRunIds.includes(run.id)}
-                                disabled={!selectable}
-                                aria-label={
-                                  selectable
-                                    ? `Select run ${run.name} for comparison`
-                                    : `Run ${run.name} cannot be compared yet`
-                                }
-                                onCheckedChange={(checked) => {
-                                  setSelectedRunIds((current) =>
-                                    checked === true
-                                      ? [...current, run.id]
-                                      : current.filter((id) => id !== run.id),
-                                  );
-                                }}
-                              />
-                            </TableCell>
-                            <TableCell className="font-medium">{run.name}</TableCell>
-                            <TableCell>
-                              <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {run.truncated && <Badge variant="warning">Truncated</Badge>}
-                                {run.status === "stopped" && <Badge variant="muted">Stopped</Badge>}
-                                {run.status === "failed" && run.errorSummary && (
-                                  <Badge variant="destructive" title={run.errorSummary}>
-                                    {run.errorSummary}
-                                  </Badge>
-                                )}
-                                {!run.truncated && run.status !== "stopped" && run.status !== "failed" && !isLiveRunStatus(run.status) && (
-                                  <span className="text-muted-foreground">—</span>
-                                )}
-                                {isLiveRunStatus(run.status) && (
-                                  <Badge variant="outline" className="text-primary">
-                                    Live
-                                  </Badge>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {new Date(run.startedAt).toLocaleString()}
-                            </TableCell>
-                            <TableCell>{run.aggregates?.pageCount ?? "—"}</TableCell>
-                            <TableCell>{run.aggregates?.totalRequests ?? "—"}</TableCell>
-                            <TableCell>
-                              {run.aggregates ? `${run.aggregates.p50.toFixed(1)} ms` : "—"}
-                            </TableCell>
-                            <TableCell onClick={(event) => event.stopPropagation()}>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-destructive hover:text-destructive"
-                                aria-label={`Delete run ${run.name}`}
-                                onClick={async () => {
-                                  await deleteRun(run.id);
-                                  if (detailRunId === run.id) setDetailRunId(null);
-                                  if (activeRunId === run.id) setActiveRunId(null);
-                                  await refreshRuns();
-                                }}
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </Table>
-
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-                  <div className="space-y-2 sm:w-64">
-                    <Label htmlFor="baseline-run">Baseline</Label>
-                    <Select
-                      value={baselineRunId ?? "none"}
-                      onValueChange={(value) => handleBaselineChange(value === "none" ? null : value)}
-                    >
-                      <SelectTrigger id="baseline-run">
-                        <SelectValue placeholder="None" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        {selectedRunIds.map((id) => {
-                          const run = runs.find((r) => r.id === id);
-                          return (
-                            <SelectItem key={id} value={id}>
-                              {run?.name ?? id}
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button disabled={selectedRunIds.length === 0} onClick={() => void handleCompare()}>
-                    Compare selected
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="compare" className="mt-6 space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Select runs to compare</CardTitle>
-                <CardDescription>
-                  Completed and manually stopped runs with stored results can be compared.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-12">Select</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Pages</TableHead>
-                      <TableHead>Requests</TableHead>
-                      <TableHead>Started</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {runs.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                          No runs yet. Start a run before comparing.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      runs.map((run) => {
-                        const selectable = isComparableRun(run);
-                        return (
-                          <TableRow key={run.id}>
-                            <TableCell>
-                              <Checkbox
-                                id={`compare-select-${run.id}`}
-                                checked={selectedRunIds.includes(run.id)}
-                                disabled={!selectable}
-                                aria-label={
-                                  selectable
-                                    ? `Select run ${run.name} for comparison`
-                                    : `Run ${run.name} cannot be compared yet`
-                                }
-                                onCheckedChange={(checked) => {
-                                  setSelectedRunIds((current) =>
-                                    checked === true
-                                      ? [...current, run.id]
-                                      : current.filter((id) => id !== run.id),
-                                  );
-                                }}
-                              />
-                            </TableCell>
-                            <TableCell className="font-medium">{run.name}</TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
-                                {!selectable && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {run.aggregates ? "Not selectable" : "No stored results"}
-                                  </span>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>{run.aggregates?.pageCount ?? "—"}</TableCell>
-                            <TableCell>{run.aggregates?.totalRequests ?? "—"}</TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {new Date(run.startedAt).toLocaleString()}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </Table>
-
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-                  <div className="space-y-2 sm:w-64">
-                    <Label htmlFor="compare-baseline-run">Baseline</Label>
-                    <Select
-                      value={baselineRunId ?? "none"}
-                      onValueChange={(value) => handleBaselineChange(value === "none" ? null : value)}
-                    >
-                      <SelectTrigger id="compare-baseline-run">
-                        <SelectValue placeholder="None" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        {selectedRunIds.map((id) => {
-                          const run = runs.find((r) => r.id === id);
-                          return (
-                            <SelectItem key={id} value={id}>
-                              {run?.name ?? id}
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button disabled={selectedRunIds.length === 0} onClick={() => void handleCompare()}>
-                    Compare selected
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {comparison ? (
-              <ComparisonView comparison={comparison} />
-            ) : (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Comparison</CardTitle>
-                  <CardDescription>Overlay latency distributions across named runs.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-12 text-center text-muted-foreground">
-                    <p>No comparison loaded yet.</p>
-                    <p className="text-sm">Select runs above and click Compare selected.</p>
-                    <Button variant="outline" onClick={() => navigateToTab("runs")}>
-                      Go to Runs
+              <CardContent className="py-8">
+                <EmptyState
+                  icon={<GitCompareArrows className="size-8" />}
+                  title="Ready to compare"
+                  description={`${selectedRunIds.length} run${selectedRunIds.length === 1 ? "" : "s"} selected. Click Compare to overlay latency distributions.`}
+                  action={
+                    <Button className="gap-2 glow-accent" onClick={() => void handleCompare()}>
+                      <GitCompareArrows className="size-4" />
+                      Compare selected
                     </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
+                  }
+                />
+              </CardContent>
+            </Card>
+          ) : null}
+        </TabsContent>
 
-          <TabsContent value="templates" className="mt-6">
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                  <div>
-                    <CardTitle>Templates</CardTitle>
-                    <CardDescription>
-                      Reusable crawl presets. Edit here when tuning configuration for future runs.
-                    </CardDescription>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => setSelectedTemplateId(null)}>
+        <TabsContent value="templates" className="mt-0">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+            <Card className="animate-fade-in-up stagger-1">
+              <SectionHeader
+                title="Templates"
+                description="Reusable crawl presets for future runs."
+                action={
+                  <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSelectedTemplateId(null)}>
                     <Plus className="size-4" />
                     New
                   </Button>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {templates.length === 0 ? (
-                    <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
-                      No templates yet. Create one to configure crawl settings.
-                    </div>
-                  ) : (
-                    templates.map((template) => (
-                      <div key={template.id} className="space-y-2">
-                        <button
-                          type="button"
-                          className={cn(
-                            "w-full rounded-lg border p-3 text-left transition-colors hover:bg-accent/50",
-                            { "border-primary bg-primary/5 ring-2 ring-primary/30": selectedTemplateId === template.id },
-                          )}
-                          onClick={() => setSelectedTemplateId(template.id)}
-                        >
-                          <div className="font-medium">{template.name}</div>
-                          <div className="truncate text-xs text-muted-foreground">{template.startUrl}</div>
-                        </button>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={async () => {
-                              await duplicateTemplate(template.id);
-                              await refreshTemplates();
-                            }}
-                          >
-                            Duplicate
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            onClick={async () => {
-                              await deleteTemplate(template.id);
-                              if (selectedTemplateId === template.id) setSelectedTemplateId(null);
-                              await refreshTemplates();
-                            }}
-                          >
-                            <Trash2 className="size-4" />
-                            Delete
-                          </Button>
-                        </div>
-                        <Separator />
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-              <TemplateForm
-                defaults={defaults}
-                template={selectedTemplate}
-                onSave={handleSaveTemplate}
+                }
+                className="p-5 pb-0"
               />
+              <CardContent className="space-y-2 pt-4">
+                {templates.length === 0 ? (
+                  <EmptyState
+                    icon={<Layers className="size-8" />}
+                    title="No templates yet"
+                    description="Create a template to configure crawl settings."
+                  />
+                ) : (
+                  templates.map((template) => (
+                    <div
+                      key={template.id}
+                      className={cn(
+                        "flex items-center gap-1 rounded-lg border px-2 py-1.5 transition-all hover:border-primary/30 hover:bg-accent/30",
+                        {
+                          "border-primary/40 bg-primary/5 ring-1 ring-primary/20": selectedTemplateId === template.id,
+                        },
+                      )}
+                    >
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 px-1 py-0.5 text-left"
+                        onClick={() => setSelectedTemplateId(template.id)}
+                      >
+                        <div className="truncate font-medium leading-tight">{template.name}</div>
+                        <div className="truncate text-[0.65rem] text-muted-foreground/80">
+                          {template.rpsLimit} RPS
+                          {template.maxPages !== null && ` · ${template.maxPages} pages`}
+                          {template.timeLimitSeconds !== null && ` · ${template.timeLimitSeconds}s`}
+                        </div>
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 shrink-0"
+                        aria-label={`Duplicate template ${template.name}`}
+                        onClick={async () => {
+                          await duplicateTemplate(template.id);
+                          await refreshTemplates();
+                        }}
+                      >
+                        <Copy className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        aria-label={`Delete template ${template.name}`}
+                        onClick={async () => {
+                          await deleteTemplate(template.id);
+                          if (selectedTemplateId === template.id) setSelectedTemplateId(null);
+                          await refreshTemplates();
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="animate-fade-in-up stagger-2">
+              <TemplateForm defaults={defaults} template={selectedTemplate} onSave={handleSaveTemplate} />
             </div>
-          </TabsContent>
-        </Tabs>
-      </div>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       <RunDetailSheet
         run={detailRun}
@@ -728,7 +503,7 @@ function App() {
         onStop={() => void handleStopRun()}
         stopping={stoppingRun}
       />
-    </div>
+    </AppShell>
   );
 }
 

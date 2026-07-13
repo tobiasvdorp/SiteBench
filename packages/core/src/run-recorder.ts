@@ -13,10 +13,15 @@ export type RecorderStats = {
   queueSize: number;
 };
 
+export type RunRecorderOptions = {
+  excludePagesFromResults?: boolean;
+};
+
 export class RunRecorder {
   private readonly store: DatabaseStore;
   private readonly runId: string;
   private readonly listener?: RunListener;
+  private readonly excludePagesFromResults: boolean;
   private latencies: number[] = [];
   private recentRequests: RequestProgressItem[] = [];
   private stats: RecorderStats = {
@@ -27,40 +32,50 @@ export class RunRecorder {
     queueSize: 0,
   };
 
-  constructor(store: DatabaseStore, runId: string, listener?: RunListener) {
+  constructor(
+    store: DatabaseStore,
+    runId: string,
+    options: RunRecorderOptions = {},
+    listener?: RunListener,
+  ) {
     this.store = store;
     this.runId = runId;
+    this.excludePagesFromResults = options.excludePagesFromResults ?? false;
     this.listener = listener;
   }
 
   recordRequest(result: MeasureResult) {
-    this.store.insertRequest(this.runId, {
-      url: result.url,
-      resourceType: result.resourceType,
-      statusCode: result.statusCode,
-      errorClass: result.errorClass,
-      errorMessage: result.errorMessage,
-      timings: result.timings,
-      byteCount: result.byteCount,
-      redirectCount: result.redirectCount,
-    });
+    const shouldPersist = !(this.excludePagesFromResults && result.resourceType === "page");
 
-    this.stats.requestsCompleted += 1;
-    if (result.errorClass) this.stats.errors += 1;
+    if (shouldPersist) {
+      this.store.insertRequest(this.runId, {
+        url: result.url,
+        resourceType: result.resourceType,
+        statusCode: result.statusCode,
+        errorClass: result.errorClass,
+        errorMessage: result.errorMessage,
+        timings: result.timings,
+        byteCount: result.byteCount,
+        redirectCount: result.redirectCount,
+      });
+
+      this.stats.requestsCompleted += 1;
+      if (result.errorClass) this.stats.errors += 1;
+      if (!result.errorClass) this.latencies.push(primaryLatency(result.timings));
+
+      this.recentRequests.push({
+        url: result.url,
+        resourceType: result.resourceType,
+        statusCode: result.statusCode,
+        errorClass: result.errorClass,
+        errorMessage: result.errorMessage,
+        totalMs: result.timings.totalMs,
+        at: new Date().toISOString(),
+      });
+      if (this.recentRequests.length > RECENT_REQUESTS_LIMIT) this.recentRequests.shift();
+    }
+
     if (result.resourceType === "page" && !result.errorClass) this.stats.pagesFetched += 1;
-
-    if (!result.errorClass) this.latencies.push(primaryLatency(result.timings));
-
-    this.recentRequests.push({
-      url: result.url,
-      resourceType: result.resourceType,
-      statusCode: result.statusCode,
-      errorClass: result.errorClass,
-      errorMessage: result.errorMessage,
-      totalMs: result.timings.totalMs,
-      at: new Date().toISOString(),
-    });
-    if (this.recentRequests.length > RECENT_REQUESTS_LIMIT) this.recentRequests.shift();
 
     this.emitProgress();
   }
@@ -81,6 +96,7 @@ export class RunRecorder {
     truncationReason: TruncationReason | null = null,
   ): RunAggregates {
     const aggregates = this.store.computeAggregatesFromRequests(this.runId);
+    if (this.excludePagesFromResults) aggregates.pageCount = this.stats.pagesFetched;
     this.store.finalizeRun(this.runId, aggregates, truncated, status, truncationReason);
     return aggregates;
   }

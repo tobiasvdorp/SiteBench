@@ -14,6 +14,77 @@ export type DiscoveredAsset = {
 
 const CSS_URL_PATTERN = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
 const MAX_CSS_DISCOVERED_URLS = 20;
+const DEFAULT_SRCSET_SLOT_WIDTH = 1280;
+const DEFAULT_SRCSET_DPR = 1;
+
+type SrcsetCandidate = {
+  url: string;
+  width: number | null;
+  density: number | null;
+};
+
+function parseSrcset(srcset: string): SrcsetCandidate[] {
+  const candidates: SrcsetCandidate[] = [];
+
+  for (const part of srcset.split(",")) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+
+    const pieces = trimmed.split(/\s+/);
+    const url = pieces[0];
+    if (!url) continue;
+
+    let width: number | null = null;
+    let density: number | null = null;
+    for (const piece of pieces.slice(1)) {
+      if (piece.endsWith("w")) width = Number(piece.slice(0, -1));
+      else if (piece.endsWith("x")) density = Number(piece.slice(0, -1));
+    }
+
+    candidates.push({ url, width, density });
+  }
+
+  return candidates;
+}
+
+function pickSrcsetCandidate(
+  candidates: SrcsetCandidate[],
+  slotWidth = DEFAULT_SRCSET_SLOT_WIDTH,
+  dpr = DEFAULT_SRCSET_DPR,
+): string | null {
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0].url;
+
+  const withWidth = candidates.filter((candidate) => candidate.width !== null);
+  if (withWidth.length > 0) {
+    const targetWidth = slotWidth * dpr;
+    const sorted = [...withWidth].sort((a, b) => a.width! - b.width!);
+    const match = sorted.find((candidate) => candidate.width! >= targetWidth);
+    return (match ?? sorted[sorted.length - 1]).url;
+  }
+
+  const withDensity = candidates.filter((candidate) => candidate.density !== null);
+  if (withDensity.length > 0) {
+    const sorted = [...withDensity].sort((a, b) => a.density! - b.density!);
+    const match = sorted.find((candidate) => candidate.density! >= dpr);
+    return (match ?? sorted[sorted.length - 1]).url;
+  }
+
+  return candidates[0].url;
+}
+
+function addSrcsetAsset(
+  assets: Map<string, DiscoveredAsset>,
+  srcset: string | undefined,
+  pageUrl: string,
+  origin: string,
+  allowImages: boolean,
+) {
+  if (!srcset) return;
+  const picked = pickSrcsetCandidate(parseSrcset(srcset));
+  if (!picked) return;
+  addAsset(assets, picked, pageUrl, origin, "image", allowImages);
+}
 
 function isSameOriginUrl(url: string, origin: string) {
   try {
@@ -85,15 +156,33 @@ export function extractAssets(
   });
 
   if (allowImages) {
-    $("img[src]").each((_, el) => add($(el).attr("src"), "image"));
-    $("img[srcset], source[srcset]").each((_, el) => {
-      const srcset = $(el).attr("srcset");
-      if (!srcset) return;
-      for (const part of srcset.split(",")) {
-        const candidate = part.trim().split(/\s+/)[0];
-        add(candidate, "image");
+    $("picture").each((_, picture) => {
+      const $picture = $(picture);
+      const sources = $picture.find("source[srcset]").toArray();
+      for (const source of sources) {
+        const srcset = $(source).attr("srcset");
+        if (!srcset) continue;
+        const picked = pickSrcsetCandidate(parseSrcset(srcset));
+        if (picked) {
+          add(picked, "image");
+          return;
+        }
       }
+      add($picture.find("img").attr("src"), "image");
     });
+
+    $("img").each((_, el) => {
+      if ($(el).parents("picture").length > 0) return;
+
+      const srcset = $(el).attr("srcset");
+      if (srcset) {
+        addSrcsetAsset(assets, srcset, pageUrl, origin, allowImages);
+        return;
+      }
+
+      add($(el).attr("src"), "image");
+    });
+
     $('link[rel="icon"], link[rel="apple-touch-icon"]').each((_, el) => add($(el).attr("href"), "image"));
   }
 

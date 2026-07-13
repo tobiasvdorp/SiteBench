@@ -116,6 +116,7 @@ function rowToTemplate(row: TemplateRow): Template {
     updatedAt: row.updated_at,
     ...config,
     timeLimitSeconds: config.timeLimitSeconds ?? null,
+    excludePagesFromResults: config.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
   };
 }
 
@@ -129,6 +130,8 @@ function rowToRun(row: RunRow): Run {
     configSnapshot: {
       ...configSnapshot,
       timeLimitSeconds: configSnapshot.timeLimitSeconds ?? null,
+      excludePagesFromResults:
+        configSnapshot.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
     },
     startedAt: row.started_at,
     completedAt: row.completed_at,
@@ -202,7 +205,8 @@ export class DatabaseStore {
       maxPages: input.maxPages,
       timeLimitSeconds: input.timeLimitSeconds,
       allowImages: input.allowImages,
-      respectRobots: input.respectRobots,
+      excludePagesFromResults: input.excludePagesFromResults,
+      respectRobots: true,
       requestTimeoutMs: input.requestTimeoutMs,
       connectTimeoutMs: input.connectTimeoutMs,
       maxRedirects: input.maxRedirects,
@@ -229,7 +233,8 @@ export class DatabaseStore {
       maxPages: input.maxPages,
       timeLimitSeconds: input.timeLimitSeconds,
       allowImages: input.allowImages,
-      respectRobots: input.respectRobots,
+      excludePagesFromResults: input.excludePagesFromResults,
+      respectRobots: true,
       requestTimeoutMs: input.requestTimeoutMs,
       connectTimeoutMs: input.connectTimeoutMs,
       maxRedirects: input.maxRedirects,
@@ -253,6 +258,7 @@ export class DatabaseStore {
       maxPages: existing.maxPages,
       timeLimitSeconds: existing.timeLimitSeconds,
       allowImages: existing.allowImages,
+      excludePagesFromResults: existing.excludePagesFromResults,
       respectRobots: existing.respectRobots,
       requestTimeoutMs: existing.requestTimeoutMs,
       connectTimeoutMs: existing.connectTimeoutMs,
@@ -452,6 +458,7 @@ export function templateInputFromTemplate(template: Template): TemplateInput {
     maxPages: template.maxPages,
     timeLimitSeconds: template.timeLimitSeconds,
     allowImages: template.allowImages,
+    excludePagesFromResults: template.excludePagesFromResults,
     respectRobots: template.respectRobots,
     requestTimeoutMs: template.requestTimeoutMs,
     connectTimeoutMs: template.connectTimeoutMs,

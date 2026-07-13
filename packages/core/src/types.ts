@@ -27,6 +27,7 @@ export type CrawlConfig = {
   maxPages: number | null;
   timeLimitSeconds: number | null;
   allowImages: boolean;
+  excludePagesFromResults: boolean;
   respectRobots: boolean;
   requestTimeoutMs: number;
   connectTimeoutMs: number;

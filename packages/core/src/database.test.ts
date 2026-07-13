@@ -14,6 +14,7 @@ describe("DatabaseStore", () => {
       maxPages: 10,
       timeLimitSeconds: null,
       allowImages: false,
+      excludePagesFromResults: false,
       respectRobots: true,
       requestTimeoutMs: 30_000,
       connectTimeoutMs: 10_000,
@@ -61,6 +62,37 @@ describe("DatabaseStore", () => {
     expect(unchangedRun?.configSnapshot.maxPages).toBe(10);
   });
 
+  it("always stores respectRobots as true for templates", () => {
+    const store = createInMemoryStore();
+
+    const template = store.createTemplate({
+      name: "Robots ignored input",
+      startUrl: "https://example.com",
+      rpsLimit: 2,
+      maxPages: 10,
+      timeLimitSeconds: null,
+      allowImages: false,
+      excludePagesFromResults: false,
+      respectRobots: false,
+      requestTimeoutMs: 30_000,
+      connectTimeoutMs: 10_000,
+      maxRedirects: 5,
+      maxRetries: 2,
+    });
+
+    expect(template.respectRobots).toBe(true);
+    expect(store.getTemplate(template.id)?.respectRobots).toBe(true);
+
+    const updated = store.updateTemplate(template.id, {
+      ...template,
+      name: "Still ignored input",
+      respectRobots: false,
+    });
+
+    expect(updated?.respectRobots).toBe(true);
+    expect(store.getTemplate(template.id)?.respectRobots).toBe(true);
+  });
+
   it("persists request resource types for retrieval", () => {
     const store = createInMemoryStore();
     const snapshot = {
@@ -69,6 +101,7 @@ describe("DatabaseStore", () => {
       maxPages: 10,
       timeLimitSeconds: null,
       allowImages: true,
+      excludePagesFromResults: false,
       respectRobots: true,
       requestTimeoutMs: 30_000,
       connectTimeoutMs: 10_000,
@@ -114,6 +147,7 @@ describe("DatabaseStore", () => {
       maxPages: 10,
       timeLimitSeconds: null,
       allowImages: false,
+      excludePagesFromResults: false,
       respectRobots: true,
       requestTimeoutMs: 30_000,
       connectTimeoutMs: 10_000,
@@ -159,6 +193,7 @@ describe("ComparisonEngine", () => {
         maxPages: 10,
         timeLimitSeconds: null,
         allowImages: false,
+        excludePagesFromResults: false,
         respectRobots: true,
         requestTimeoutMs: 30_000,
         connectTimeoutMs: 10_000,

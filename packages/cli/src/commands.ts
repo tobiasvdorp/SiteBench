@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import {
   DEFAULT_ALLOW_IMAGES,
+  DEFAULT_EXCLUDE_PAGES_FROM_RESULTS,
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_MAX_PAGES,
   DEFAULT_MAX_REDIRECTS,
@@ -42,6 +43,9 @@ function parseOverrides(command: Command): Partial<CrawlConfig> {
   else if (opts.maxPages !== undefined) overrides.maxPages = Number(opts.maxPages);
   if (opts.timeLimitSeconds !== undefined) overrides.timeLimitSeconds = Number(opts.timeLimitSeconds);
   if (opts.allowImages !== undefined) overrides.allowImages = parseBool(String(opts.allowImages));
+  if (opts.excludePagesFromResults !== undefined) {
+    overrides.excludePagesFromResults = parseBool(String(opts.excludePagesFromResults));
+  }
   if (opts.respectRobots !== undefined) overrides.respectRobots = parseBool(String(opts.respectRobots));
   if (opts.requestTimeout !== undefined) overrides.requestTimeoutMs = Number(opts.requestTimeout);
   if (opts.connectTimeout !== undefined) overrides.connectTimeoutMs = Number(opts.connectTimeout);
@@ -61,8 +65,11 @@ function templateInputFromOptions(name: string, command: Command): TemplateInput
     timeLimitSeconds:
       opts.timeLimitSeconds === undefined ? DEFAULT_TIME_LIMIT_SECONDS : Number(opts.timeLimitSeconds),
     allowImages: opts.allowImages !== undefined ? parseBool(String(opts.allowImages)) : DEFAULT_ALLOW_IMAGES,
-    respectRobots:
-      opts.respectRobots !== undefined ? parseBool(String(opts.respectRobots)) : DEFAULT_RESPECT_ROBOTS,
+    excludePagesFromResults:
+      opts.excludePagesFromResults !== undefined
+        ? parseBool(String(opts.excludePagesFromResults))
+        : DEFAULT_EXCLUDE_PAGES_FROM_RESULTS,
+    respectRobots: true,
     requestTimeoutMs: Number(opts.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MS),
     connectTimeoutMs: Number(opts.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT_MS),
     maxRedirects: Number(opts.maxRedirects ?? DEFAULT_MAX_REDIRECTS),
@@ -74,7 +81,7 @@ function printTemplate(template: ReturnType<SiteBench["getTemplate"]>) {
   if (!template) return;
   console.log(`${template.id}\t${template.name}\t${template.startUrl}`);
   console.log(
-    `  rps=${template.rpsLimit} maxPages=${template.maxPages ?? "none"} timeLimitSeconds=${template.timeLimitSeconds ?? "none"} allowImages=${template.allowImages} respectRobots=${template.respectRobots}`,
+    `  rps=${template.rpsLimit} maxPages=${template.maxPages ?? "none"} timeLimitSeconds=${template.timeLimitSeconds ?? "none"} allowImages=${template.allowImages} excludePagesFromResults=${template.excludePagesFromResults} respectRobots=${template.respectRobots}`,
   );
 }
 
@@ -109,6 +116,7 @@ export function createCli(program: Command) {
       console.log(`  maxRedirects: ${DEFAULT_MAX_REDIRECTS}`);
       console.log(`  maxRetries: ${DEFAULT_MAX_RETRIES}`);
       console.log(`  allowImages: ${DEFAULT_ALLOW_IMAGES}`);
+      console.log(`  excludePagesFromResults: ${DEFAULT_EXCLUDE_PAGES_FROM_RESULTS}`);
       console.log(`  respectRobots: ${DEFAULT_RESPECT_ROBOTS}`);
     });
 
@@ -133,8 +141,8 @@ export function createCli(program: Command) {
     .option("--max-pages <number>", "Maximum pages to crawl", String(DEFAULT_MAX_PAGES))
     .option("--no-max-pages", "Do not apply a page limit; requires --time-limit-seconds")
     .option("--time-limit-seconds <number>", "Maximum run duration in seconds")
-    .option("--allow-images <bool>", "Fetch images and srcset candidates")
-    .option("--respect-robots <bool>", "Honor robots.txt", String(DEFAULT_RESPECT_ROBOTS))
+    .option("--allow-images <bool>", "Fetch images")
+    .option("--exclude-pages-from-results <bool>", "Omit HTML page requests from saved run data")
     .option("--request-timeout <ms>", "Request timeout in ms", String(DEFAULT_REQUEST_TIMEOUT_MS))
     .option("--connect-timeout <ms>", "Connect timeout in ms", String(DEFAULT_CONNECT_TIMEOUT_MS))
     .option("--max-redirects <number>", "Maximum redirects", String(DEFAULT_MAX_REDIRECTS))
@@ -165,7 +173,7 @@ export function createCli(program: Command) {
     .option("--no-max-pages", "Do not apply a page limit; requires --time-limit-seconds")
     .option("--time-limit-seconds <number>", "Maximum run duration in seconds")
     .option("--allow-images <bool>", "Fetch images")
-    .option("--respect-robots <bool>", "Honor robots.txt")
+    .option("--exclude-pages-from-results <bool>", "Omit HTML page requests from saved run data")
     .option("--request-timeout <ms>", "Request timeout in ms")
     .option("--connect-timeout <ms>", "Connect timeout in ms")
     .option("--max-redirects <number>", "Maximum redirects")
@@ -221,6 +229,7 @@ export function createCli(program: Command) {
     .option("--no-max-pages", "Run without a page limit; requires --time-limit-seconds or a template time limit")
     .option("--time-limit-seconds <number>", "Override maximum run duration in seconds")
     .option("--allow-images <bool>", "Override image fetching")
+    .option("--exclude-pages-from-results <bool>", "Override HTML page persistence in run data")
     .option("--respect-robots <bool>", "Override robots.txt behavior")
     .option("--request-timeout <ms>", "Override request timeout")
     .option("--connect-timeout <ms>", "Override connect timeout")

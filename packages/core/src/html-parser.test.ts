@@ -33,14 +33,48 @@ describe("extractAssets", () => {
     expect(types.has("image")).toBe(false);
   });
 
-  it("discovers images and srcset candidates only when allowImages is true", () => {
+  it("discovers images when allowImages is true", () => {
     const withoutImages = extractAssets(html, pageUrl, origin, false);
     const withImages = extractAssets(html, pageUrl, origin, true);
 
     expect(withoutImages.some((asset) => asset.resourceType === "image")).toBe(false);
     expect(withImages.some((asset) => asset.url.endsWith("/photo.jpg"))).toBe(true);
     expect(withImages.some((asset) => asset.url.endsWith("/small.jpg"))).toBe(true);
-    expect(withImages.some((asset) => asset.url.endsWith("/large.jpg"))).toBe(true);
+    expect(withImages.some((asset) => asset.url.endsWith("/large.jpg"))).toBe(false);
+  });
+
+  it("picks one width-based srcset candidate for a simulated viewport", () => {
+    const srcsetHtml = `
+      <img srcset="/640.jpg 640w, /1280.jpg 1280w, /1920.jpg 1920w">
+    `;
+    const assets = extractAssets(srcsetHtml, pageUrl, origin, true);
+    const imageUrls = assets.filter((asset) => asset.resourceType === "image").map((asset) => asset.url);
+
+    expect(imageUrls).toEqual(["https://example.com/1280.jpg"]);
+  });
+
+  it("prefers srcset over src on the same img element", () => {
+    const htmlWithBoth = `
+      <img src="/fallback.jpg" srcset="/small.jpg 1x, /large.jpg 2x">
+    `;
+    const assets = extractAssets(htmlWithBoth, pageUrl, origin, true);
+    const imageUrls = assets.filter((asset) => asset.resourceType === "image").map((asset) => asset.url);
+
+    expect(imageUrls).toEqual(["https://example.com/small.jpg"]);
+  });
+
+  it("loads one image from a picture element", () => {
+    const pictureHtml = `
+      <picture>
+        <source srcset="/desktop.jpg 1280w, /desktop-2x.jpg 2560w">
+        <source srcset="/mobile.jpg 640w">
+        <img src="/fallback.jpg">
+      </picture>
+    `;
+    const assets = extractAssets(pictureHtml, pageUrl, origin, true);
+    const imageUrls = assets.filter((asset) => asset.resourceType === "image").map((asset) => asset.url);
+
+    expect(imageUrls).toEqual(["https://example.com/desktop.jpg"]);
   });
 });
 

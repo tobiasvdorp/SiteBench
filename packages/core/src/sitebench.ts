@@ -59,13 +59,13 @@ export class SiteBench {
   createTemplate(input: TemplateInput) {
     const validation = validateCrawlConfig(input);
     if (!validation.ok) throw new ValidationFailure(validation.errors);
-    return this.store.createTemplate({ ...validation.config, name: input.name });
+    return this.store.createTemplate({ ...validation.config, name: input.name, respectRobots: true });
   }
 
   updateTemplate(id: string, input: TemplateInput) {
     const validation = validateCrawlConfig(input);
     if (!validation.ok) throw new ValidationFailure(validation.errors);
-    const updated = this.store.updateTemplate(id, { ...validation.config, name: input.name });
+    const updated = this.store.updateTemplate(id, { ...validation.config, name: input.name, respectRobots: true });
     if (!updated) throw new Error("Template not found");
     return updated;
   }
@@ -126,6 +126,8 @@ export class SiteBench {
             (input.overrides.timeLimitSeconds ? null : DEFAULT_CRAWL_CONFIG.maxPages),
           timeLimitSeconds: input.overrides.timeLimitSeconds ?? DEFAULT_CRAWL_CONFIG.timeLimitSeconds,
           allowImages: input.overrides.allowImages ?? DEFAULT_CRAWL_CONFIG.allowImages,
+          excludePagesFromResults:
+            input.overrides.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
           respectRobots: input.overrides.respectRobots ?? DEFAULT_CRAWL_CONFIG.respectRobots,
           requestTimeoutMs: input.overrides.requestTimeoutMs ?? DEFAULT_CRAWL_CONFIG.requestTimeoutMs,
           connectTimeoutMs: input.overrides.connectTimeoutMs ?? DEFAULT_CRAWL_CONFIG.connectTimeoutMs,
@@ -138,7 +140,10 @@ export class SiteBench {
       throw new Error("Either templateId or overrides with startUrl are required");
     }
 
-    const merged = mergeCrawlConfig(baseConfig, input.overrides ?? {});
+    const merged = {
+      ...mergeCrawlConfig(baseConfig, input.overrides ?? {}),
+      ...(input.templateId ? { respectRobots: true } : {}),
+    };
     const validation = validateCrawlConfig(merged);
     if (!validation.ok) throw new ValidationFailure(validation.errors);
 
@@ -177,7 +182,12 @@ export class SiteBench {
     listener: RunListener | undefined,
     signal: AbortSignal,
   ) {
-    const recorder = new RunRecorder(this.store, run.id, listener);
+    const recorder = new RunRecorder(
+      this.store,
+      run.id,
+      { excludePagesFromResults: config.excludePagesFromResults },
+      listener,
+    );
 
     try {
       const orchestrator = new CrawlOrchestrator({

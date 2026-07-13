@@ -5,13 +5,19 @@ import { RunRecorder } from "./run-recorder.js";
 import { startFixtureServer, type FixtureServer } from "./test-support/fixture-server.js";
 import type { ResourceType } from "./types.js";
 
-function createSnapshot(baseUrl: string, allowImages: boolean, maxPages: number | null = 1) {
+function createSnapshot(
+  baseUrl: string,
+  allowImages: boolean,
+  maxPages: number | null = 1,
+  excludePagesFromResults = false,
+) {
   return {
     startUrl: `${baseUrl}/`,
     rpsLimit: 20,
     maxPages,
     timeLimitSeconds: null,
     allowImages,
+    excludePagesFromResults,
     respectRobots: false,
     requestTimeoutMs: 5000,
     connectTimeoutMs: 2000,
@@ -36,11 +42,12 @@ async function runFixtureCrawl(
   baseUrl: string,
   allowImages: boolean,
   maxPages: number | null = 1,
+  excludePagesFromResults = false,
 ) {
   const store = createInMemoryStore();
-  const snapshot = createSnapshot(baseUrl, allowImages, maxPages);
+  const snapshot = createSnapshot(baseUrl, allowImages, maxPages, excludePagesFromResults);
   const run = store.createRun(`fixture-${allowImages}-${maxPages}`, baseUrl, snapshot);
-  const recorder = new RunRecorder(store, run.id);
+  const recorder = new RunRecorder(store, run.id, { excludePagesFromResults });
 
   const orchestrator = new CrawlOrchestrator({
     config: snapshot,
@@ -103,13 +110,13 @@ describe("CrawlOrchestrator", () => {
     expect(aggregates.resourceTypeCounts.image).toBe(0);
   });
 
-  it("issues real HTTP requests for images and srcset when allowImages is true", async () => {
+  it("issues real HTTP requests for images when allowImages is true", async () => {
     const { requests, aggregates } = await runFixtureCrawl(baseUrl, true, 1);
     const hits = fixture.getHits();
 
     expect(hitCount(hits, "/photo.jpg")).toBeGreaterThan(0);
     expect(hitCount(hits, "/photo-small.jpg")).toBeGreaterThan(0);
-    expect(hitCount(hits, "/photo-large.jpg")).toBeGreaterThan(0);
+    expect(hitCount(hits, "/photo-large.jpg")).toBe(0);
 
     const imageRequests = requests.filter((request) => request.resourceType === "image");
     expect(imageRequests.length).toBeGreaterThan(0);
@@ -136,6 +143,20 @@ describe("CrawlOrchestrator", () => {
     expect(requests.filter((request) => request.resourceType === "page")).toHaveLength(2);
   });
 
+  it("still crawls pages but omits them from saved requests when excludePagesFromResults is true", async () => {
+    const { requests, aggregates } = await runFixtureCrawl(baseUrl, false, 2, true);
+    const hits = fixture.getHits();
+
+    expect(hitCount(hits, "/")).toBe(1);
+    expect(hitCount(hits, "/page2")).toBe(1);
+    expect(hitCount(hits, "/style.css")).toBeGreaterThan(0);
+    expect(requests.filter((request) => request.resourceType === "page")).toHaveLength(0);
+    expect(requests.some((request) => request.resourceType === "css")).toBe(true);
+    expect(aggregates.pageCount).toBe(2);
+    expect(aggregates.totalRequests).toBe(requests.length);
+    expect(aggregates.resourceTypeCounts.page).toBe(0);
+  });
+
   it("stops cleanly when the time limit is reached", async () => {
     const store = createInMemoryStore();
     const snapshot = {
@@ -144,6 +165,7 @@ describe("CrawlOrchestrator", () => {
       maxPages: null,
       timeLimitSeconds: 1,
       allowImages: false,
+      excludePagesFromResults: false,
       respectRobots: false,
       requestTimeoutMs: 5000,
       connectTimeoutMs: 2000,
@@ -156,7 +178,7 @@ describe("CrawlOrchestrator", () => {
     };
 
     const run = store.createRun("time-limited", baseUrl, snapshot);
-    const recorder = new RunRecorder(store, run.id);
+    const recorder = new RunRecorder(store, run.id, { excludePagesFromResults: false });
     let nowCalls = 0;
 
     const orchestrator = new CrawlOrchestrator({

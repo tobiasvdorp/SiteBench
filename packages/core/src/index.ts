@@ -8,6 +8,7 @@ export { DatabaseStore, createInMemoryStore, aggregatesFromLatencies, emptyTempl
 export {
   DEFAULT_ALLOW_IMAGES,
   DEFAULT_CONNECT_TIMEOUT_MS,
+  DEFAULT_EXCLUDE_PAGES_FROM_RESULTS,
   DEFAULT_MAX_PAGES,
   DEFAULT_MAX_REDIRECTS,
   DEFAULT_MAX_RETRIES,

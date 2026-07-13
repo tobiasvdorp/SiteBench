@@ -19,10 +19,13 @@ import {
 import { Eye, EyeOff, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Metric } from "@/components/ui/metric";
+import { SectionHeader } from "@/components/ui/section-header";
 import {
   Table,
   TableBody,
@@ -80,6 +83,9 @@ type LatencyTooltipProps = {
   visible: Record<string, boolean>;
 };
 
+const CHART_TICK_COLOR = "oklch(0.6 0.03 220)";
+const CHART_GRID_COLOR = "oklch(0.55 0.04 220 / 15%)";
+
 function LatencyTooltip({ active, payload, label, runs, visible }: LatencyTooltipProps) {
   if (!active || !payload?.length) return null;
 
@@ -91,18 +97,18 @@ function LatencyTooltip({ active, payload, label, runs, visible }: LatencyToolti
   const entries = payload.filter((entry) => Number(entry.value) > 0);
 
   return (
-    <div className="rounded-lg border bg-popover px-3 py-2 text-popover-foreground shadow-md">
+    <div className="rounded-lg border border-border/60 bg-popover px-3 py-2.5 text-popover-foreground shadow-lg">
       <p className="mb-1 font-medium">{bucketLabel}</p>
       <p className="mb-2 text-xs text-muted-foreground">
-        {total} request{total === 1 ? "" : "s"} in this latency range
+        <Metric>{total}</Metric> request{total === 1 ? "" : "s"} in this latency range
       </p>
       {entries.length > 0 ? (
-        <ul className="space-y-1">
+        <ul className="space-y-1.5">
           {entries.map((entry) => (
             <li key={String(entry.name)} className="grid grid-cols-[10px_1fr_auto] items-center gap-2 text-sm">
-              <span className="size-2.5 rounded-full" style={{ background: entry.color }} />
-              <span>{entry.name}</span>
-              <strong>{entry.value}</strong>
+              <span className="size-2.5 rounded-sm" style={{ background: entry.color }} />
+              <span className="truncate">{entry.name}</span>
+              <Metric className="font-semibold">{entry.value}</Metric>
             </li>
           ))}
         </ul>
@@ -128,6 +134,20 @@ function resolveInitialColors(comparison: ComparisonResult): Record<string, stri
 function resolveInitialVisibility(comparison: ComparisonResult): Record<string, boolean> {
   return Object.fromEntries(
     comparison.runs.map((run) => [run.runId, getStoredVisibility(run.runId) ?? run.visible]),
+  );
+}
+
+function DeltaValue({ delta }: { delta: number }) {
+  return (
+    <span
+      className={cn("ml-1 text-xs font-mono", {
+        "text-destructive": delta > 0,
+        "text-success": delta < 0,
+        "text-muted-foreground": delta === 0,
+      })}
+    >
+      ({delta >= 0 ? "+" : ""}{delta.toFixed(1)})
+    </span>
   );
 }
 
@@ -242,39 +262,38 @@ export function ComparisonView({ comparison }: Props) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Comparison — {comparison.siteOrigin}</CardTitle>
+          <SectionHeader title={`Comparison — ${comparison.siteOrigin}`} />
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-12 text-center text-muted-foreground">
-            <p>No comparable runs are available for this comparison.</p>
-            <p className="text-sm">Select completed or stopped runs with stored data and click Compare selected.</p>
-          </div>
+          <EmptyState
+            title="No comparable runs"
+            description="Select completed or stopped runs with stored data and click Compare."
+          />
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="animate-fade-in-up space-y-6">
       <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
-          <div>
-            <CardTitle>Comparison — {comparison.siteOrigin}</CardTitle>
-            <CardDescription>
-              {totalCount} run{totalCount === 1 ? "" : "s"} · {visibleCount} visible on chart
-              {baselineRun && <> · baseline: {baselineRun.runName}</>}
-            </CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setAllVisible(true)} disabled={visibleCount === totalCount}>
-              <Eye className="size-4" />
-              Show all
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setAllVisible(false)} disabled={visibleCount === 0}>
-              <EyeOff className="size-4" />
-              Hide all
-            </Button>
-          </div>
+        <CardHeader>
+          <SectionHeader
+            title={`Comparison — ${comparison.siteOrigin}`}
+            description={`${totalCount} run${totalCount === 1 ? "" : "s"} · ${visibleCount} visible on chart${baselineRun ? ` · baseline: ${baselineRun.runName}` : ""}`}
+            action={
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setAllVisible(true)} disabled={visibleCount === totalCount}>
+                  <Eye className="size-4" />
+                  Show all
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setAllVisible(false)} disabled={visibleCount === 0}>
+                  <EyeOff className="size-4" />
+                  Hide all
+                </Button>
+              </div>
+            }
+          />
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
@@ -282,18 +301,18 @@ export function ComparisonView({ comparison }: Props) {
               <div
                 key={run.runId}
                 className={cn(
-                  "flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-opacity",
+                  "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-all",
                   {
                     "opacity-50": !visible[run.runId],
-                    "ring-1 ring-primary/40": run.isBaseline,
+                    "ring-1 ring-warning/40 border-warning/30": run.isBaseline,
                   },
                 )}
-                style={{ borderColor: run.color }}
+                style={{ borderColor: run.isBaseline ? undefined : run.color }}
                 title={run.runName}
               >
                 <input
                   type="color"
-                  className="size-5 cursor-pointer rounded-full border-0 bg-transparent p-0"
+                  className="size-5 cursor-pointer rounded border-0 bg-transparent p-0"
                   value={runColors[run.runId] ?? run.color}
                   onChange={(e) => setRunColor(run.runId, e.target.value)}
                   aria-label={`Color for ${run.runName}`}
@@ -318,7 +337,7 @@ export function ComparisonView({ comparison }: Props) {
                   variant="ghost"
                   size="sm"
                   className={cn("h-7 px-2 text-xs", {
-                    "text-amber-400": run.isBaseline,
+                    "text-warning": run.isBaseline,
                     "text-muted-foreground": !run.isBaseline,
                   })}
                   onClick={() => setBaseline(run.isBaseline ? null : run.runId)}
@@ -332,10 +351,12 @@ export function ComparisonView({ comparison }: Props) {
             ))}
           </div>
 
-          <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
+          <div className="surface-inset flex flex-wrap items-end gap-3 p-3">
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Latency range</Label>
-              <div className="inline-flex rounded-lg border p-1" role="group" aria-label="Chart latency range mode">
+              <Label className="text-[0.65rem] font-medium uppercase tracking-widest text-muted-foreground">
+                Latency range
+              </Label>
+              <div className="inline-flex rounded-lg border border-border/60 p-0.5" role="group" aria-label="Chart latency range mode">
                 <Button
                   type="button"
                   size="sm"
@@ -371,7 +392,7 @@ export function ComparisonView({ comparison }: Props) {
                     min={0}
                     max={HISTOGRAM_MAX_MS}
                     step={HISTOGRAM_BUCKET_SIZE_MS}
-                    className="h-8 w-28"
+                    className="h-8 w-28 font-mono"
                     value={customMinMs}
                     onChange={(event) => updateCustomMinMs(parseRangeInput(event.target.value, customMinMs))}
                   />
@@ -386,7 +407,7 @@ export function ComparisonView({ comparison }: Props) {
                     min={HISTOGRAM_BUCKET_SIZE_MS}
                     max={HISTOGRAM_MAX_MS}
                     step={HISTOGRAM_BUCKET_SIZE_MS}
-                    className="h-8 w-28"
+                    className="h-8 w-28 font-mono"
                     value={customMaxMs}
                     onChange={(event) => updateCustomMaxMs(parseRangeInput(event.target.value, customMaxMs))}
                   />
@@ -398,33 +419,39 @@ export function ComparisonView({ comparison }: Props) {
               Showing {formatChartRangeLabel(chartRange.minMs, chartRange.maxMs)}
               {rangeMode === "auto" && " based on visible runs"}
               {chartRange.isFallback && chartRange.rangeError && (
-                <span className="block text-amber-500">
+                <span className="block text-warning">
                   Invalid custom range. Using auto ({chartRange.rangeError})
                 </span>
               )}
             </p>
           </div>
 
-          <div className="min-h-[320px] w-full">
+          <div className="min-h-[320px] w-full rounded-lg border border-border/40 bg-surface-elevated/30 p-2">
             {visibleCount === 0 ? (
-              <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed text-muted-foreground">
-                <p>All runs are hidden on the chart.</p>
-                <Button variant="outline" size="sm" onClick={() => setAllVisible(true)}>
-                  Show all runs
-                </Button>
-              </div>
+              <EmptyState
+                title="All runs hidden"
+                description="Show at least one run to display the latency distribution."
+                action={
+                  <Button variant="outline" size="sm" onClick={() => setAllVisible(true)}>
+                    Show all runs
+                  </Button>
+                }
+                className="min-h-[280px] border-0 bg-transparent"
+              />
             ) : chartData.length === 0 ? (
-              <div className="flex min-h-[280px] items-center justify-center rounded-lg border border-dashed text-muted-foreground">
-                <p>No latency distribution data for the visible runs.</p>
-              </div>
+              <EmptyState
+                title="No distribution data"
+                description="No latency distribution data for the visible runs."
+                className="min-h-[280px] border-0 bg-transparent"
+              />
             ) : (
               <ResponsiveContainer width="100%" height={340}>
-                <BarChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                <BarChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 20 }} barCategoryGap="15%">
+                  <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="label"
                     ticks={axisTicks}
-                    tick={{ fontSize: 11, fill: "oklch(0.68 0.02 260)" }}
+                    tick={{ fontSize: 10, fill: CHART_TICK_COLOR, fontFamily: "var(--font-mono)" }}
                     tickFormatter={(value) => {
                       const row = chartData.find((entry) => entry.label === value);
                       return row?.axisLabel ?? "";
@@ -432,9 +459,17 @@ export function ComparisonView({ comparison }: Props) {
                     angle={-35}
                     textAnchor="end"
                     height={56}
+                    axisLine={{ stroke: CHART_GRID_COLOR }}
+                    tickLine={{ stroke: CHART_GRID_COLOR }}
                   />
-                  <YAxis allowDecimals={false} tick={{ fill: "oklch(0.68 0.02 260)" }} />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fill: CHART_TICK_COLOR, fontSize: 10, fontFamily: "var(--font-mono)" }}
+                    axisLine={{ stroke: CHART_GRID_COLOR }}
+                    tickLine={{ stroke: CHART_GRID_COLOR }}
+                  />
                   <Tooltip
+                    cursor={{ fill: "oklch(0.78 0.14 195 / 8%)" }}
                     content={(props) => (
                       <LatencyTooltip
                         active={props.active}
@@ -446,24 +481,35 @@ export function ComparisonView({ comparison }: Props) {
                     )}
                   />
                   {visibleRuns.map((run) => (
-                    <Bar key={run.runId} dataKey={run.runName} fill={run.color} stackId="latency" maxBarSize={48} />
+                    <Bar
+                      key={run.runId}
+                      dataKey={run.runName}
+                      fill={run.color}
+                      stackId="latency"
+                      maxBarSize={40}
+                      radius={[2, 2, 0, 0]}
+                      animationDuration={600}
+                      animationEasing="ease-out"
+                    />
                   ))}
                 </BarChart>
               </ResponsiveContainer>
             )}
           </div>
           <p className="text-xs text-muted-foreground">
-            Stacked bars show request counts per {HISTOGRAM_BUCKET_SIZE_MS} ms latency bucket
+            Stacked bars show request counts per <Metric className="text-xs">{HISTOGRAM_BUCKET_SIZE_MS}</Metric> ms latency bucket
             ({formatChartRangeLabel(chartRange.minMs, chartRange.maxMs)}).
-            Latencies above {HISTOGRAM_MAX_MS} ms are grouped in the final bucket.
+            Latencies above <Metric className="text-xs">{HISTOGRAM_MAX_MS}</Metric> ms are grouped in the final bucket.
           </p>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Percentile summary</CardTitle>
-          <CardDescription>Latency percentiles with baseline deltas when a baseline is selected.</CardDescription>
+          <SectionHeader
+            title="Percentile summary"
+            description="Latency percentiles with baseline deltas when a baseline is selected."
+          />
         </CardHeader>
         <CardContent>
           <Table>
@@ -503,18 +549,8 @@ export function ComparisonView({ comparison }: Props) {
                   </TableCell>
                   {(["p50", "p75", "p90", "p95", "p99"] as const).map((key) => (
                     <TableCell key={key}>
-                      {run.percentiles[key].toFixed(1)} ms
-                      {run.deltas && (
-                        <span
-                          className={cn("ml-1 text-xs", {
-                            "text-red-400": (run.deltas[key] ?? 0) > 0,
-                            "text-emerald-400": (run.deltas[key] ?? 0) < 0,
-                            "text-muted-foreground": (run.deltas[key] ?? 0) === 0,
-                          })}
-                        >
-                          ({run.deltas[key]! >= 0 ? "+" : ""}{run.deltas[key]!.toFixed(1)})
-                        </span>
-                      )}
+                      <Metric unit="ms">{run.percentiles[key].toFixed(1)}</Metric>
+                      {run.deltas && <DeltaValue delta={run.deltas[key]!} />}
                     </TableCell>
                   ))}
                 </TableRow>

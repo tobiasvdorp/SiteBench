@@ -1,8 +1,13 @@
 import { useMemo, useState } from "react";
 import type { RequestProgressItem, ResourceType, Run } from "@sitebench/core";
+import { Square } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { LiveIndicator } from "@/components/ui/live-indicator";
+import { Metric } from "@/components/ui/metric";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { StatTile } from "@/components/ui/stat-tile";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Sheet,
   SheetContent,
@@ -56,7 +61,7 @@ const FILTER_OPTIONS: { value: RequestFilter; label: string }[] = [
 function statusBadgeVariant(statusCode: number | null, errorClass: string | null) {
   if (errorClass) return "destructive" as const;
   if (statusCode === null) return "muted" as const;
-  if (statusCode >= 200 && statusCode < 300) return "secondary" as const;
+  if (statusCode >= 200 && statusCode < 300) return "success" as const;
   if (statusCode >= 300 && statusCode < 400) return "outline" as const;
   return "destructive" as const;
 }
@@ -136,82 +141,90 @@ export function RunDetailSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col sm:max-w-xl" aria-describedby="run-detail-description">
-        <SheetHeader>
-          <SheetTitle>{run?.name ?? "Run details"}</SheetTitle>
-          <SheetDescription id="run-detail-description">
-            {isLive ? "Live fetch activity for this run." : "Stored summary and recent request rows for this run."}
-          </SheetDescription>
+        <SheetHeader className="border-b border-border/40 pb-4">
+          <div className="flex items-start justify-between gap-3 pr-8">
+            <div className="min-w-0 space-y-1">
+              <SheetTitle className="truncate">{run?.name ?? "Run details"}</SheetTitle>
+              <SheetDescription id="run-detail-description">
+                {isLive ? "Live fetch activity for this run." : "Stored summary and recent request rows for this run."}
+              </SheetDescription>
+            </div>
+          </div>
         </SheetHeader>
 
         {run && (
-          <div className="mt-4 space-y-4">
+          <div className="mt-4 flex min-h-0 flex-1 flex-col space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={run.status === "running" ? "default" : "secondary"}>{run.status}</Badge>
+              {isLive ? <LiveIndicator /> : <StatusBadge status={run.status} showLiveIndicator={false} />}
               <Badge variant={run.configSnapshot.allowImages ? "secondary" : "outline"}>
                 Images {run.configSnapshot.allowImages ? "included" : "excluded"}
               </Badge>
-              <span className="text-xs text-muted-foreground">{run.siteOrigin}</span>
+              {run.configSnapshot.excludePagesFromResults && (
+                <Badge variant="secondary">Pages excluded from results</Badge>
+              )}
+              <span className="font-mono text-xs text-muted-foreground">{run.siteOrigin}</span>
             </div>
 
             {displayedProgress && (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div className="rounded-lg border bg-muted/30 p-3">
-                  <div className="text-xs text-muted-foreground">Pages</div>
-                  <div className="text-lg font-semibold">
-                    {isLive
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <StatTile
+                  label="Pages"
+                  value={
+                    isLive
                       ? `${displayedProgress.pagesFetched}/${displayedProgress.pagesDiscovered}`
-                      : displayedProgress.pagesFetched}
-                  </div>
-                </div>
-                <div className="rounded-lg border bg-muted/30 p-3">
-                  <div className="text-xs text-muted-foreground">Requests</div>
-                  <div className="text-lg font-semibold">{displayedProgress.requestsCompleted}</div>
-                </div>
-                <div className="rounded-lg border bg-muted/30 p-3">
-                  <div className="text-xs text-muted-foreground">Assets</div>
-                  <div className="text-lg font-semibold">{assetCount}</div>
-                </div>
-                <div className="rounded-lg border bg-muted/30 p-3">
-                  <div className="text-xs text-muted-foreground">Errors</div>
-                  <div className="text-lg font-semibold">{displayedProgress.errors}</div>
-                </div>
+                      : displayedProgress.pagesFetched
+                  }
+                  live={isLive}
+                />
+                <StatTile label="Requests" value={displayedProgress.requestsCompleted} live={isLive} />
+                <StatTile label="Assets" value={assetCount} />
+                <StatTile
+                  label="Errors"
+                  value={displayedProgress.errors}
+                  accent={displayedProgress.errors > 0}
+                />
               </div>
             )}
 
-            <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 text-sm sm:grid-cols-2">
+            {run.aggregates && !isLive && (
+              <div className="grid grid-cols-3 gap-2">
+                <StatTile label="p50" value={run.aggregates.p50.toFixed(1)} unit="ms" accent />
+                <StatTile label="p90" value={run.aggregates.p90.toFixed(1)} unit="ms" />
+                <StatTile label="p99" value={run.aggregates.p99.toFixed(1)} unit="ms" />
+              </div>
+            )}
+
+            <div className="surface-inset grid gap-3 p-3 text-sm sm:grid-cols-2">
               <div>
-                <div className="text-xs text-muted-foreground">Start URL</div>
-                <div className="truncate font-medium" title={run.configSnapshot.startUrl}>
+                <div className="text-[0.6rem] font-medium uppercase tracking-widest text-muted-foreground">Start URL</div>
+                <div className="truncate font-mono text-xs font-medium" title={run.configSnapshot.startUrl}>
                   {run.configSnapshot.startUrl}
                 </div>
               </div>
               <div>
-                <div className="text-xs text-muted-foreground">Limits</div>
-                <div className="font-medium">
-                  {formatLimit(run.configSnapshot.maxPages)} pages ·{" "}
-                  {formatLimit(run.configSnapshot.timeLimitSeconds, "s")}
+                <div className="text-[0.6rem] font-medium uppercase tracking-widest text-muted-foreground">Limits</div>
+                <div className="font-mono text-xs font-medium">
+                  {formatLimit(run.configSnapshot.maxPages)} pages · {formatLimit(run.configSnapshot.timeLimitSeconds, "s")}
                 </div>
               </div>
               <div>
-                <div className="text-xs text-muted-foreground">RPS limit</div>
-                <div className="font-medium">{run.configSnapshot.rpsLimit}</div>
+                <div className="text-[0.6rem] font-medium uppercase tracking-widest text-muted-foreground">RPS limit</div>
+                <Metric className="text-sm font-medium">{run.configSnapshot.rpsLimit}</Metric>
               </div>
               <div>
-                <div className="text-xs text-muted-foreground">Timeout</div>
-                <div className="font-medium">{run.configSnapshot.requestTimeoutMs} ms</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Images</div>
-                <div className="font-medium">{run.configSnapshot.allowImages ? "Included" : "Excluded"}</div>
+                <div className="text-[0.6rem] font-medium uppercase tracking-widest text-muted-foreground">Timeout</div>
+                <Metric className="text-sm font-medium" unit="ms">
+                  {run.configSnapshot.requestTimeoutMs}
+                </Metric>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {RESOURCE_TYPES.map((type) => {
                 const count = resourceCounts[type];
                 if (!count) return null;
                 return (
-                  <Badge key={type} variant="outline">
+                  <Badge key={type} variant="outline" className="font-mono">
                     {resourceTypeLabel(type)}: {count}
                   </Badge>
                 );
@@ -225,14 +238,24 @@ export function RunDetailSheet({
             )}
 
             {isLive && (
-              <Button variant="destructive" size="sm" disabled={stopping} onClick={onStop} aria-label="Stop run">
+              <Button
+                variant="destructive"
+                size="sm"
+                className="gap-2 self-start"
+                disabled={stopping}
+                onClick={onStop}
+                aria-label="Stop run"
+              >
+                <Square className="size-3.5 fill-current" />
                 {stopping ? "Stopping…" : "Stop run"}
               </Button>
             )}
 
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-medium">{isLive ? "Recent requests" : "Stored requests"}</h3>
+                <h3 className="text-[0.65rem] font-medium uppercase tracking-widest text-muted-foreground">
+                  {isLive ? "Recent requests" : "Stored requests"}
+                </h3>
                 <div className="flex flex-wrap gap-1">
                   {FILTER_OPTIONS.map((option) => (
                     <Button
@@ -257,7 +280,7 @@ export function RunDetailSheet({
                     : "No requests match this filter in the loaded sample."}
                 </p>
               ) : (
-                <ScrollArea className="h-[min(50vh,28rem)] rounded-md border">
+                <ScrollArea className="h-[min(50vh,28rem)] rounded-lg border border-border/40">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -280,11 +303,13 @@ export function RunDetailSheet({
                               {resourceTypeLabel(item.resourceType)}
                             </Badge>
                           </TableCell>
-                          <TableCell className="max-w-[12rem] truncate text-xs" title={item.url}>
+                          <TableCell className="max-w-[12rem] truncate font-mono text-xs" title={item.url}>
                             {item.url}
                           </TableCell>
-                          <TableCell className="text-right text-xs text-muted-foreground">
-                            {item.totalMs.toFixed(0)} ms
+                          <TableCell className="text-right">
+                            <Metric className="text-xs text-muted-foreground" unit="ms">
+                              {item.totalMs.toFixed(0)}
+                            </Metric>
                           </TableCell>
                         </TableRow>
                       ))}

@@ -30,8 +30,6 @@ describe("run start CLI integration", () => {
         name,
         "--url",
         `${fixture.baseUrl}/`,
-        "--respect-robots",
-        "false",
         "--max-pages",
         "2",
         "--rps",
