@@ -26,7 +26,7 @@ import { RunHistory } from "./components/RunHistory";
 import { RunLauncher } from "./components/RunLauncher";
 import { RunSelectionBar } from "./components/RunSelectionBar";
 import { TemplateForm } from "./components/TemplateForm";
-import { getStoredBaseline, setStoredBaseline } from "./lib/comparison-preferences";
+import { getStoredBaseline, getStoredSelectedRunIds, setStoredBaseline, setStoredSelectedRunIds } from "./lib/comparison-preferences";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -73,7 +73,7 @@ function App() {
   const [progress, setProgress] = useState<RunProgressState | null>(null);
   const [recentRequests, setRecentRequests] = useState<RequestProgressItem[]>([]);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
-  const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
+  const [selectedRunIds, setSelectedRunIds] = useState<string[]>(() => getStoredSelectedRunIds());
   const [baselineRunId, setBaselineRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -207,6 +207,55 @@ function App() {
   }, [runs, selectedRunIds, templates]);
 
   useEffect(() => {
+    setStoredSelectedRunIds(selectedRunIds);
+    if (selectedRunIds.length === 0) setComparison(null);
+  }, [selectedRunIds]);
+
+  const restoreComparison = useCallback(async (runIds: string[]) => {
+    if (runIds.length === 0) return;
+
+    const firstRun = runs.find((run) => runIds.includes(run.id));
+    if (!firstRun) return;
+
+    const origin = firstRun.siteOrigin;
+    const storedBaseline = getStoredBaseline(origin);
+    const baselineId = storedBaseline && runIds.includes(storedBaseline) ? storedBaseline : null;
+    if (baselineId) setBaselineRunId(baselineId);
+
+    try {
+      const result = await compare(
+        origin,
+        runIds.map((runId) => ({
+          runId,
+          visible: true,
+          isBaseline: runId === baselineId,
+          color: undefined,
+        })),
+      );
+      setComparison(result);
+    } catch (err) {
+      setError(formatApiError(err));
+    }
+  }, [runs]);
+
+  useEffect(() => {
+    if (runs.length === 0) return;
+
+    const validIds = selectedRunIds.filter((runId) => {
+      const run = runs.find((entry) => entry.id === runId);
+      return run && isComparableRun(run);
+    });
+
+    if (validIds.length !== selectedRunIds.length) {
+      setSelectedRunIds(validIds);
+      return;
+    }
+
+    if (tab !== "compare" || comparison || validIds.length === 0) return;
+    void restoreComparison(validIds);
+  }, [runs, selectedRunIds, tab, comparison, restoreComparison]);
+
+  useEffect(() => {
     if (!siteOrigin) return;
     const stored = getStoredBaseline(siteOrigin);
     if (!stored) return;
@@ -279,17 +328,21 @@ function App() {
   const handleCompare = async () => {
     if (!siteOrigin || selectedRunIds.length === 0) return;
     if (baselineRunId) setStoredBaseline(siteOrigin, baselineRunId);
-    const result = await compare(
-      siteOrigin,
-      selectedRunIds.map((runId) => ({
-        runId,
-        visible: true,
-        isBaseline: runId === baselineRunId,
-        color: undefined,
-      })),
-    );
-    setComparison(result);
-    navigateToTab("compare");
+    try {
+      const result = await compare(
+        siteOrigin,
+        selectedRunIds.map((runId) => ({
+          runId,
+          visible: true,
+          isBaseline: runId === baselineRunId,
+          color: undefined,
+        })),
+      );
+      setComparison(result);
+      navigateToTab("compare");
+    } catch (err) {
+      setError(formatApiError(err));
+    }
   };
 
   const handleRemoveFromSelection = (runId: string) => {

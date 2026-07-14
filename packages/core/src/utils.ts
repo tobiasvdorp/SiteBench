@@ -36,7 +36,7 @@ export function buildHistogram(values: number[]): HistogramBucket[] {
   return buckets;
 }
 
-export { histogramBucketPercentages, histogramTotalCount } from "./histogram.js";
+export { histogramBucketPercentages, histogramTotalCount, combineHistograms } from "./histogram.js";
 
 export function createRunId() {
   return createId("run");

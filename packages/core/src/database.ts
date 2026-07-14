@@ -428,6 +428,16 @@ export class DatabaseStore {
     const latencies = rows.map((row) => row.ttfb_ms ?? row.total_ms);
     const percentiles = computePercentiles(latencies);
     const histogram = buildHistogram(latencies);
+    const latencyHistogramsByResourceType = Object.fromEntries(
+      RESOURCE_TYPES.map((type) => [
+        type,
+        buildHistogram(
+          rows
+            .filter((row) => row.resource_type === type)
+            .map((row) => row.ttfb_ms ?? row.total_ms),
+        ),
+      ]),
+    ) as Record<ResourceType, HistogramBucket[]>;
 
     return {
       totalRequests: rows.length,
@@ -436,7 +446,32 @@ export class DatabaseStore {
       resourceTypeCounts: countResourceTypes(rows),
       ...percentiles,
       latencyHistogram: histogram,
+      latencyHistogramsByResourceType,
     };
+  }
+
+  computeHistogramsByResourceType(runId: string): Record<ResourceType, HistogramBucket[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT resource_type, ttfb_ms, total_ms
+         FROM requests WHERE run_id = ?`,
+      )
+      .all(runId) as {
+      resource_type: string;
+      ttfb_ms: number | null;
+      total_ms: number;
+    }[];
+
+    return Object.fromEntries(
+      RESOURCE_TYPES.map((type) => [
+        type,
+        buildHistogram(
+          rows
+            .filter((row) => row.resource_type === type)
+            .map((row) => row.ttfb_ms ?? row.total_ms),
+        ),
+      ]),
+    ) as Record<ResourceType, HistogramBucket[]>;
   }
 
   getRequestsForRun(

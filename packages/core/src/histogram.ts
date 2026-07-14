@@ -13,6 +13,17 @@ export function histogramBucketPercentages(buckets: HistogramBucket[]): number[]
   return buckets.map((bucket) => (bucket.count / total) * 100);
 }
 
+export function combineHistograms(histograms: HistogramBucket[][]): HistogramBucket[] {
+  const first = histograms.find((histogram) => histogram.length > 0);
+  if (!first) return [];
+
+  return first.map((bucket, index) => ({
+    minMs: bucket.minMs,
+    maxMs: bucket.maxMs,
+    count: histograms.reduce((sum, histogram) => sum + (histogram[index]?.count ?? 0), 0),
+  }));
+}
+
 export function lastNonZeroBucketIndex(buckets: HistogramBucket[]): number {
   for (let index = buckets.length - 1; index >= 0; index -= 1) {
     if (buckets[index].count > 0) return index;
@@ -107,4 +118,44 @@ export function axisTickIntervalMs(rangeMs: number): number {
 
 export function shouldShowAxisTick(bucketMinMs: number, tickIntervalMs: number): boolean {
   return bucketMinMs % tickIntervalMs === 0;
+}
+
+const PERCENTILE_TARGETS = {
+  p50: 50,
+  p75: 75,
+  p90: 90,
+  p95: 95,
+  p99: 99,
+} as const;
+
+export type HistogramPercentiles = {
+  p50: number;
+  p75: number;
+  p90: number;
+  p95: number;
+  p99: number;
+};
+
+export function percentilesFromHistogram(buckets: HistogramBucket[]): HistogramPercentiles {
+  const total = histogramTotalCount(buckets);
+  if (total === 0) return { p50: 0, p75: 0, p90: 0, p95: 0, p99: 0 };
+
+  let cumulative = 0;
+  const entries = Object.entries(PERCENTILE_TARGETS) as [keyof HistogramPercentiles, number][];
+  const result = Object.fromEntries(entries.map(([key]) => [key, 0])) as HistogramPercentiles;
+  let entryIndex = 0;
+
+  for (const bucket of buckets) {
+    cumulative += bucket.count;
+    while (entryIndex < entries.length) {
+      const [key, target] = entries[entryIndex];
+      const threshold = Math.ceil((target / 100) * total);
+      if (cumulative < threshold) break;
+      result[key] = bucket.maxMs;
+      entryIndex += 1;
+    }
+    if (entryIndex >= entries.length) break;
+  }
+
+  return result;
 }

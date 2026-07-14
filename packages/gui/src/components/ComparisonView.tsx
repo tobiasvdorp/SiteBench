@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -16,7 +19,7 @@ import {
   HISTOGRAM_MAX_MS,
   shouldShowAxisTick,
 } from "@sitebench/core/histogram";
-import { Eye, EyeOff, Star } from "lucide-react";
+import { ChartSpline, Eye, EyeOff, Star, Table2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -26,6 +29,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Metric } from "@/components/ui/metric";
 import { SectionHeader } from "@/components/ui/section-header";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -40,22 +50,41 @@ import {
   getStoredChartRangeMaxMs,
   getStoredChartRangeMinMs,
   getStoredChartRangeMode,
+  getStoredChartResourceFilter,
+  getStoredChartValueMode,
   getStoredRunColor,
+  getStoredSummaryViewMode,
   getStoredVisibility,
   setStoredBaseline,
   setStoredChartRangeMaxMs,
   setStoredChartRangeMinMs,
   setStoredChartRangeMode,
+  setStoredChartResourceFilter,
+  setStoredChartValueMode,
   setStoredRunColor,
+  setStoredSummaryViewMode,
   setStoredVisibility,
   type ChartRangeMode,
+  type ChartResourceFilter,
+  type ChartValueMode,
+  type SummaryViewMode,
 } from "@/lib/comparison-preferences";
 import {
+  bucketChartValue,
   bucketTotalCount,
+  buildDistributionChartData,
+  buildSummaryRuns,
+  CHART_RESOURCE_FILTER_OPTIONS,
+  chartResourceFilterLabel,
   formatAxisTick,
   formatBucketLabel,
+  formatChartAxisValue,
   formatChartRangeLabel,
+  formatChartTooltipValue,
+  formatDistributionAxisValue,
+  formatSummaryDelta,
   resolveEffectiveChartRange,
+  resolveHistogramForFilter,
   withBaseline,
 } from "@/lib/comparison-utils";
 
@@ -70,6 +99,62 @@ type ChartRow = {
   [runName: string]: string | number;
 };
 
+type DistributionTooltipProps = {
+  active?: boolean;
+  payload?: readonly {
+    name?: string | number;
+    value?: number | string | (string | number)[];
+    color?: string;
+    payload?: { latencyMs?: number };
+  }[];
+  label?: string | number;
+  percentileMarkers: ReturnType<typeof buildDistributionChartData>["percentileMarkers"];
+};
+
+function DistributionTooltip({ active, payload, label, percentileMarkers }: DistributionTooltipProps) {
+  if (!active || !payload?.length) return null;
+
+  const latencyMs = payload[0]?.payload?.latencyMs ?? Number(label ?? 0);
+  const entries = payload.filter((entry) => Number(entry.value) > 0);
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-popover px-3 py-2.5 text-popover-foreground shadow-lg">
+      <p className="mb-2 font-medium">
+        <Metric unit="ms">{latencyMs.toFixed(0)}</Metric>
+      </p>
+      {entries.length > 0 ? (
+        <ul className="space-y-1.5">
+          {entries.map((entry) => (
+            <li key={String(entry.name)} className="grid grid-cols-[10px_1fr_auto] items-center gap-2 text-sm">
+              <span className="size-2.5 rounded-sm" style={{ background: entry.color }} />
+              <span className="truncate">{entry.name}</span>
+              <Metric className="font-semibold">{formatDistributionAxisValue(Number(entry.value))}</Metric>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-muted-foreground">No density from visible runs</p>
+      )}
+      {percentileMarkers.length > 0 && (
+        <div className="mt-2 space-y-1 border-t border-border/50 pt-2">
+          {percentileMarkers.map((marker) => (
+            <p key={marker.runId} className="text-xs text-muted-foreground">
+              <span className="font-medium" style={{ color: marker.color }}>
+                {marker.runName}
+              </span>
+              {": p50 "}
+              <Metric className="text-xs">{marker.percentiles.p50.toFixed(1)}</Metric>
+              {" ms · p95 "}
+              <Metric className="text-xs">{marker.percentiles.p95.toFixed(1)}</Metric>
+              {" ms"}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type LatencyTooltipProps = {
   active?: boolean;
   payload?: readonly {
@@ -81,36 +166,56 @@ type LatencyTooltipProps = {
   label?: string | number;
   runs: ComparisonRunSeries[];
   visible: Record<string, boolean>;
+  resourceFilter: ChartResourceFilter;
+  valueMode: ChartValueMode;
 };
 
 const CHART_TICK_COLOR = "oklch(0.6 0.03 220)";
 const CHART_GRID_COLOR = "oklch(0.55 0.04 220 / 15%)";
 
-function LatencyTooltip({ active, payload, label, runs, visible }: LatencyTooltipProps) {
+function LatencyTooltip({
+  active,
+  payload,
+  label,
+  runs,
+  visible,
+  resourceFilter,
+  valueMode,
+}: LatencyTooltipProps) {
   if (!active || !payload?.length) return null;
 
   const bucketIndex = payload[0]?.payload?.bucketIndex;
   if (bucketIndex === undefined) return null;
 
   const bucketLabel = payload[0]?.payload?.label ?? String(label ?? "");
-  const total = bucketTotalCount(runs, bucketIndex, visible);
+  const total = bucketTotalCount(runs, bucketIndex, visible, resourceFilter);
   const entries = payload.filter((entry) => Number(entry.value) > 0);
+  const totalLabel =
+    valueMode === "percent"
+      ? `${total} request${total === 1 ? "" : "s"} total in this range`
+      : `${total} request${total === 1 ? "" : "s"} in this latency range`;
 
   return (
     <div className="rounded-lg border border-border/60 bg-popover px-3 py-2.5 text-popover-foreground shadow-lg">
       <p className="mb-1 font-medium">{bucketLabel}</p>
-      <p className="mb-2 text-xs text-muted-foreground">
-        <Metric>{total}</Metric> request{total === 1 ? "" : "s"} in this latency range
-      </p>
+      <p className="mb-2 text-xs text-muted-foreground">{totalLabel}</p>
       {entries.length > 0 ? (
         <ul className="space-y-1.5">
-          {entries.map((entry) => (
-            <li key={String(entry.name)} className="grid grid-cols-[10px_1fr_auto] items-center gap-2 text-sm">
-              <span className="size-2.5 rounded-sm" style={{ background: entry.color }} />
-              <span className="truncate">{entry.name}</span>
-              <Metric className="font-semibold">{entry.value}</Metric>
-            </li>
-          ))}
+          {entries.map((entry) => {
+            const run = runs.find((item) => item.runName === entry.name);
+            const displayValue =
+              run && bucketIndex !== undefined
+                ? formatChartTooltipValue(run, bucketIndex, resourceFilter, valueMode)
+                : entry.value;
+
+            return (
+              <li key={String(entry.name)} className="grid grid-cols-[10px_1fr_auto] items-center gap-2 text-sm">
+                <span className="size-2.5 rounded-sm" style={{ background: entry.color }} />
+                <span className="truncate">{entry.name}</span>
+                <Metric className="font-semibold">{displayValue}</Metric>
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="text-xs text-muted-foreground">No requests from visible runs</p>
@@ -137,7 +242,7 @@ function resolveInitialVisibility(comparison: ComparisonResult): Record<string, 
   );
 }
 
-function DeltaValue({ delta }: { delta: number }) {
+function DeltaValue({ delta, valueMode }: { delta: number; valueMode: ChartValueMode }) {
   return (
     <span
       className={cn("ml-1 text-xs font-mono", {
@@ -146,7 +251,7 @@ function DeltaValue({ delta }: { delta: number }) {
         "text-muted-foreground": delta === 0,
       })}
     >
-      ({delta >= 0 ? "+" : ""}{delta.toFixed(1)})
+      {formatSummaryDelta(delta, valueMode)}
     </span>
   );
 }
@@ -156,6 +261,9 @@ export function ComparisonView({ comparison }: Props) {
   const [visible, setVisible] = useState<Record<string, boolean>>(() => resolveInitialVisibility(comparison));
   const [baselineRunId, setBaselineRunId] = useState<string | null>(() => resolveInitialBaseline(comparison));
   const [rangeMode, setRangeMode] = useState<ChartRangeMode>(() => getStoredChartRangeMode());
+  const [valueMode, setValueMode] = useState<ChartValueMode>(() => getStoredChartValueMode());
+  const [resourceFilter, setResourceFilter] = useState<ChartResourceFilter>(() => getStoredChartResourceFilter());
+  const [summaryViewMode, setSummaryViewMode] = useState<SummaryViewMode>(() => getStoredSummaryViewMode());
   const [customMinMs, setCustomMinMs] = useState(() => getStoredChartRangeMinMs() ?? 0);
   const [customMaxMs, setCustomMaxMs] = useState(() => getStoredChartRangeMaxMs() ?? HISTOGRAM_MAX_MS);
 
@@ -173,9 +281,24 @@ export function ComparisonView({ comparison }: Props) {
     [runs, visible],
   );
 
+  const summaryRuns = useMemo(
+    () => buildSummaryRuns(runs, baselineRunId, resourceFilter, valueMode),
+    [runs, baselineRunId, resourceFilter, valueMode],
+  );
+
+  const visibleSummaryRuns = useMemo(
+    () => summaryRuns.filter((run) => visible[run.runId]),
+    [summaryRuns, visible],
+  );
+
+  const distributionChart = useMemo(
+    () => buildDistributionChartData(summaryRuns, visible),
+    [summaryRuns, visible],
+  );
+
   const chartRange = useMemo(
-    () => resolveEffectiveChartRange(visibleRuns, rangeMode, customMinMs, customMaxMs),
-    [visibleRuns, rangeMode, customMinMs, customMaxMs],
+    () => resolveEffectiveChartRange(visibleRuns, rangeMode, customMinMs, customMaxMs, resourceFilter),
+    [visibleRuns, rangeMode, customMinMs, customMaxMs, resourceFilter],
   );
 
   const chartData = useMemo(() => {
@@ -201,12 +324,13 @@ export function ComparisonView({ comparison }: Props) {
 
       for (const run of runs) {
         if (!visible[run.runId]) continue;
-        row[run.runName] = run.histogram[index]?.count ?? 0;
+        const histogram = resolveHistogramForFilter(run, resourceFilter);
+        row[run.runName] = bucketChartValue(histogram, index, valueMode);
       }
 
       return row;
     }).filter((row): row is ChartRow => row !== null);
-  }, [runs, visible, chartRange.minMs, chartRange.maxMs]);
+  }, [runs, visible, chartRange.minMs, chartRange.maxMs, resourceFilter, valueMode]);
 
   const axisTicks = useMemo(
     () => chartData.filter((row) => row.axisLabel).map((row) => row.label),
@@ -241,6 +365,21 @@ export function ComparisonView({ comparison }: Props) {
   const setChartRangeMode = (mode: ChartRangeMode) => {
     setRangeMode(mode);
     setStoredChartRangeMode(mode);
+  };
+
+  const setChartValueMode = (mode: ChartValueMode) => {
+    setValueMode(mode);
+    setStoredChartValueMode(mode);
+  };
+
+  const setChartResourceFilter = (filter: ChartResourceFilter) => {
+    setResourceFilter(filter);
+    setStoredChartResourceFilter(filter);
+  };
+
+  const setSummaryView = (mode: SummaryViewMode) => {
+    setSummaryViewMode(mode);
+    setStoredSummaryViewMode(mode);
   };
 
   const updateCustomMinMs = (value: number) => {
@@ -354,6 +493,52 @@ export function ComparisonView({ comparison }: Props) {
           <div className="surface-inset flex flex-wrap items-end gap-3 p-3">
             <div className="space-y-1">
               <Label className="text-[0.65rem] font-medium uppercase tracking-widest text-muted-foreground">
+                Y-axis
+              </Label>
+              <div className="inline-flex rounded-lg border border-border/60 p-0.5" role="group" aria-label="Chart value mode">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={valueMode === "count" ? "default" : "ghost"}
+                  className="h-7 px-3"
+                  onClick={() => setChartValueMode("count")}
+                  aria-pressed={valueMode === "count"}
+                >
+                  Count
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={valueMode === "percent" ? "default" : "ghost"}
+                  className="h-7 px-3"
+                  onClick={() => setChartValueMode("percent")}
+                  aria-pressed={valueMode === "percent"}
+                >
+                  Percent
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-[0.65rem] font-medium uppercase tracking-widest text-muted-foreground">
+                Requests
+              </Label>
+              <Select value={resourceFilter} onValueChange={(value) => setChartResourceFilter(value as ChartResourceFilter)}>
+                <SelectTrigger size="sm" className="h-8 w-40" aria-label="Chart resource filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CHART_RESOURCE_FILTER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-[0.65rem] font-medium uppercase tracking-widest text-muted-foreground">
                 Latency range
               </Label>
               <div className="inline-flex rounded-lg border border-border/60 p-0.5" role="group" aria-label="Chart latency range mode">
@@ -463,7 +648,8 @@ export function ComparisonView({ comparison }: Props) {
                     tickLine={{ stroke: CHART_GRID_COLOR }}
                   />
                   <YAxis
-                    allowDecimals={false}
+                    allowDecimals={valueMode === "percent"}
+                    tickFormatter={(value) => formatChartAxisValue(Number(value), valueMode)}
                     tick={{ fill: CHART_TICK_COLOR, fontSize: 10, fontFamily: "var(--font-mono)" }}
                     axisLine={{ stroke: CHART_GRID_COLOR }}
                     tickLine={{ stroke: CHART_GRID_COLOR }}
@@ -477,6 +663,8 @@ export function ComparisonView({ comparison }: Props) {
                         label={props.label}
                         runs={runs}
                         visible={visible}
+                        resourceFilter={resourceFilter}
+                        valueMode={valueMode}
                       />
                     )}
                   />
@@ -497,8 +685,9 @@ export function ComparisonView({ comparison }: Props) {
             )}
           </div>
           <p className="text-xs text-muted-foreground">
-            Stacked bars show request counts per <Metric className="text-xs">{HISTOGRAM_BUCKET_SIZE_MS}</Metric> ms latency bucket
-            ({formatChartRangeLabel(chartRange.minMs, chartRange.maxMs)}).
+            Stacked bars show {valueMode === "percent" ? "each run's share of requests" : "request counts"} per{" "}
+            <Metric className="text-xs">{HISTOGRAM_BUCKET_SIZE_MS}</Metric> ms latency bucket for{" "}
+            {chartResourceFilterLabel(resourceFilter).toLowerCase()} ({formatChartRangeLabel(chartRange.minMs, chartRange.maxMs)}).
             Latencies above <Metric className="text-xs">{HISTOGRAM_MAX_MS}</Metric> ms are grouped in the final bucket.
           </p>
         </CardContent>
@@ -508,55 +697,196 @@ export function ComparisonView({ comparison }: Props) {
         <CardHeader>
           <SectionHeader
             title="Percentile summary"
-            description="Latency percentiles with baseline deltas when a baseline is selected."
+            description={
+              summaryViewMode === "distribution"
+                ? `Estimated normal distributions for ${chartResourceFilterLabel(resourceFilter).toLowerCase()}, fitted from p50 and p95. Dashed lines mark p50 per run.`
+                : valueMode === "percent"
+                  ? `Latency percentiles for ${chartResourceFilterLabel(resourceFilter).toLowerCase()} with baseline deltas as relative change.`
+                  : `Latency percentiles for ${chartResourceFilterLabel(resourceFilter).toLowerCase()} with baseline deltas in milliseconds.`
+            }
+            action={
+              <div
+                className="inline-flex rounded-lg border border-border/60 p-0.5"
+                role="group"
+                aria-label="Percentile summary view mode"
+              >
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={summaryViewMode === "table" ? "default" : "ghost"}
+                  className="h-7 gap-1.5 px-3"
+                  onClick={() => setSummaryView("table")}
+                  aria-pressed={summaryViewMode === "table"}
+                >
+                  <Table2 className="size-3.5" />
+                  Table
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={summaryViewMode === "distribution" ? "default" : "ghost"}
+                  className="h-7 gap-1.5 px-3"
+                  onClick={() => setSummaryView("distribution")}
+                  aria-pressed={summaryViewMode === "distribution"}
+                >
+                  <ChartSpline className="size-3.5" />
+                  Distribution
+                </Button>
+              </div>
+            }
           />
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Run</TableHead>
-                <TableHead>p50</TableHead>
-                <TableHead>p75</TableHead>
-                <TableHead>p90</TableHead>
-                <TableHead>p95</TableHead>
-                <TableHead>p99</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {runs.map((run) => (
-                <TableRow
-                  key={run.runId}
-                  className={cn({
-                    "opacity-50": !visible[run.runId],
-                    "bg-primary/5": run.isBaseline,
-                  })}
-                >
-                  <TableCell>
-                    <span className="font-medium" style={{ color: run.color }}>
-                      {run.runName}
-                    </span>
-                    {run.isBaseline && (
-                      <Badge variant="warning" className="ml-2">
-                        baseline
-                      </Badge>
-                    )}
-                    {!visible[run.runId] && (
-                      <Badge variant="muted" className="ml-2">
-                        hidden
-                      </Badge>
-                    )}
-                  </TableCell>
-                  {(["p50", "p75", "p90", "p95", "p99"] as const).map((key) => (
-                    <TableCell key={key}>
-                      <Metric unit="ms">{run.percentiles[key].toFixed(1)}</Metric>
-                      {run.deltas && <DeltaValue delta={run.deltas[key]!} />}
-                    </TableCell>
-                  ))}
+          {summaryViewMode === "table" ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Run</TableHead>
+                  <TableHead>p50</TableHead>
+                  <TableHead>p75</TableHead>
+                  <TableHead>p90</TableHead>
+                  <TableHead>p95</TableHead>
+                  <TableHead>p99</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {summaryRuns.map((run) => (
+                  <TableRow
+                    key={run.runId}
+                    className={cn({
+                      "opacity-50": !visible[run.runId],
+                      "bg-primary/5": run.isBaseline,
+                    })}
+                  >
+                    <TableCell>
+                      <span className="font-medium" style={{ color: run.color }}>
+                        {run.runName}
+                      </span>
+                      {run.isBaseline && (
+                        <Badge variant="warning" className="ml-2">
+                          baseline
+                        </Badge>
+                      )}
+                      {!visible[run.runId] && (
+                        <Badge variant="muted" className="ml-2">
+                          hidden
+                        </Badge>
+                      )}
+                    </TableCell>
+                    {(["p50", "p75", "p90", "p95", "p99"] as const).map((key) => (
+                      <TableCell key={key}>
+                        <Metric unit="ms">{run.summaryPercentiles[key].toFixed(1)}</Metric>
+                        {run.summaryDeltas && (
+                          <DeltaValue delta={run.summaryDeltas[key]!} valueMode={valueMode} />
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : visibleSummaryRuns.length === 0 ? (
+            <EmptyState
+              title="All runs hidden"
+              description="Show at least one run to display the distribution curves."
+              action={
+                <Button variant="outline" size="sm" onClick={() => setAllVisible(true)}>
+                  Show all runs
+                </Button>
+              }
+              className="min-h-[280px] border-0 bg-transparent"
+            />
+          ) : distributionChart.data.length === 0 ? (
+            <EmptyState
+              title="No distribution data"
+              description="Not enough percentile data to estimate distributions for the visible runs."
+              className="min-h-[280px] border-0 bg-transparent"
+            />
+          ) : (
+            <div className="space-y-3">
+              <div className="min-h-[320px] w-full rounded-lg border border-border/40 bg-surface-elevated/30 p-2">
+                <ResponsiveContainer width="100%" height={340}>
+                  <AreaChart data={distributionChart.data} margin={{ top: 8, right: 12, left: 0, bottom: 20 }}>
+                    <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" vertical={false} />
+                    <XAxis
+                      dataKey="latencyMs"
+                      type="number"
+                      domain={[distributionChart.range.minMs, distributionChart.range.maxMs]}
+                      ticks={distributionChart.axisTicks}
+                      tick={{ fontSize: 10, fill: CHART_TICK_COLOR, fontFamily: "var(--font-mono)" }}
+                      tickFormatter={(value) => formatAxisTick(Number(value))}
+                      axisLine={{ stroke: CHART_GRID_COLOR }}
+                      tickLine={{ stroke: CHART_GRID_COLOR }}
+                    />
+                    <YAxis
+                      allowDecimals
+                      domain={[0, 100]}
+                      tickFormatter={(value) => formatDistributionAxisValue(Number(value))}
+                      tick={{ fill: CHART_TICK_COLOR, fontSize: 10, fontFamily: "var(--font-mono)" }}
+                      axisLine={{ stroke: CHART_GRID_COLOR }}
+                      tickLine={{ stroke: CHART_GRID_COLOR }}
+                    />
+                    <Tooltip
+                      cursor={{ stroke: "oklch(0.78 0.14 195 / 35%)", strokeWidth: 1 }}
+                      content={(props) => (
+                        <DistributionTooltip
+                          active={props.active}
+                          payload={props.payload}
+                          label={props.label}
+                          percentileMarkers={distributionChart.percentileMarkers}
+                        />
+                      )}
+                    />
+                    {distributionChart.percentileMarkers.map((marker) => {
+                      if (marker.percentiles.p50 <= 0) return null;
+                      return (
+                        <ReferenceLine
+                          key={`${marker.runId}-p50`}
+                          x={marker.percentiles.p50}
+                          stroke={marker.color}
+                          strokeDasharray="4 4"
+                          strokeOpacity={0.75}
+                        />
+                      );
+                    })}
+                    {visibleSummaryRuns.map((run) => (
+                      <Area
+                        key={run.runId}
+                        type="monotone"
+                        dataKey={run.runName}
+                        stroke={run.color}
+                        fill={run.color}
+                        fillOpacity={0.15}
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4, strokeWidth: 0 }}
+                        animationDuration={600}
+                        animationEasing="ease-out"
+                      />
+                    ))}
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {distributionChart.percentileMarkers.map((marker) => (
+                  <div key={marker.runId} className="text-xs text-muted-foreground">
+                    <span className="font-medium" style={{ color: marker.color }}>
+                      {marker.runName}
+                    </span>
+                    {": p50 "}
+                    <Metric className="text-xs">{marker.percentiles.p50.toFixed(1)}</Metric>
+                    {" ms · p75 "}
+                    <Metric className="text-xs">{marker.percentiles.p75.toFixed(1)}</Metric>
+                    {" ms · p95 "}
+                    <Metric className="text-xs">{marker.percentiles.p95.toFixed(1)}</Metric>
+                    {" ms · p99 "}
+                    <Metric className="text-xs">{marker.percentiles.p99.toFixed(1)}</Metric>
+                    {" ms"}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

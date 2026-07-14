@@ -38,6 +38,9 @@ export class ComparisonEngine {
         visible: selection.visible ?? true,
         isBaseline: selection.isBaseline ?? false,
         histogram: run.aggregates.latencyHistogram,
+        histogramsByResourceType:
+          run.aggregates.latencyHistogramsByResourceType ??
+          this.store.computeHistogramsByResourceType(selection.runId),
         percentiles,
         deltas: null,
       });

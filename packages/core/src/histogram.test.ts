@@ -11,6 +11,8 @@ import {
   lastNonZeroBucketIndexAcross,
   shouldShowAxisTick,
   validateChartRange,
+  combineHistograms,
+  percentilesFromHistogram,
 } from "./histogram.js";
 
 describe("histogramBucketPercentages", () => {
@@ -97,5 +99,38 @@ describe("chart range utilities", () => {
     expect(axisTickIntervalMs(4000)).toBe(1000);
     expect(shouldShowAxisTick(200, 200)).toBe(true);
     expect(shouldShowAxisTick(150, 200)).toBe(false);
+  });
+});
+
+describe("combineHistograms", () => {
+  it("combines histogram bucket counts across runs", () => {
+    const first = buildHistogram([100, 120]);
+    const second = buildHistogram([100, 200]);
+    const combined = combineHistograms([first, second]);
+
+    expect(combined[2]?.count).toBe(3);
+    expect(histogramTotalCount(combined)).toBe(4);
+  });
+});
+
+describe("percentilesFromHistogram", () => {
+  it("derives percentile latencies from bucket counts", () => {
+    const buckets = buildHistogram([
+      ...Array.from({ length: 50 }, () => 100),
+      ...Array.from({ length: 50 }, () => 200),
+    ]);
+
+    expect(percentilesFromHistogram(buckets).p50).toBe(150);
+    expect(percentilesFromHistogram(buckets).p99).toBe(250);
+  });
+
+  it("returns zero percentiles when the histogram is empty", () => {
+    expect(percentilesFromHistogram(buildHistogram([]))).toEqual({
+      p50: 0,
+      p75: 0,
+      p90: 0,
+      p95: 0,
+      p99: 0,
+    });
   });
 });

@@ -88,6 +88,7 @@ export type RunAggregates = {
   p95: number;
   p99: number;
   latencyHistogram: HistogramBucket[];
+  latencyHistogramsByResourceType?: Record<ResourceType, HistogramBucket[]>;
 };
 
 export type HistogramBucket = {
@@ -163,6 +164,7 @@ export type ComparisonRunSeries = {
   visible: boolean;
   isBaseline: boolean;
   histogram: HistogramBucket[];
+  histogramsByResourceType: Record<ResourceType, HistogramBucket[]>;
   percentiles: {
     p50: number;
     p75: number;

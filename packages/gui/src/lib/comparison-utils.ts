@@ -1,14 +1,37 @@
-import type { ComparisonRunSeries, HistogramBucket } from "@sitebench/core";
+import type { ComparisonRunSeries, HistogramBucket, ResourceType } from "@sitebench/core";
 import {
+  axisTickIntervalMs,
+  combineHistograms,
   computeAutoChartMaxMs,
+  histogramBucketPercentages,
+  histogramTotalCount,
   HISTOGRAM_BUCKET_SIZE_MS,
   HISTOGRAM_MAX_MS,
   lastNonZeroBucketIndexAcross,
+  percentilesFromHistogram,
+  shouldShowAxisTick,
   validateChartRange,
 } from "@sitebench/core/histogram";
-import type { ChartRangeMode } from "@/lib/comparison-preferences";
+import type { ChartRangeMode, ChartResourceFilter, ChartValueMode } from "@/lib/comparison-preferences";
 
 const PERCENTILE_KEYS = ["p50", "p75", "p90", "p95", "p99"] as const;
+
+const ASSET_RESOURCE_TYPES: ResourceType[] = ["css", "js", "font", "image", "other"];
+
+export const CHART_RESOURCE_FILTER_OPTIONS: { value: ChartResourceFilter; label: string }[] = [
+  { value: "all", label: "All requests" },
+  { value: "page", label: "Pages" },
+  { value: "assets", label: "Assets" },
+  { value: "css", label: "CSS" },
+  { value: "js", label: "JS" },
+  { value: "font", label: "Fonts" },
+  { value: "image", label: "Images" },
+  { value: "other", label: "Other" },
+];
+
+export function chartResourceFilterLabel(filter: ChartResourceFilter): string {
+  return CHART_RESOURCE_FILTER_OPTIONS.find((option) => option.value === filter)?.label ?? "All requests";
+}
 
 export function formatBucketLabel(bucket: HistogramBucket): string {
   if (bucket.maxMs >= 5000) return `${bucket.minMs}–${bucket.maxMs} ms (max)`;
@@ -25,15 +48,65 @@ export function formatAxisTick(minMs: number): string {
 export function computeBaselineDeltas(
   baseline: ComparisonRunSeries["percentiles"],
   target: ComparisonRunSeries["percentiles"],
+  valueMode: ChartValueMode = "count",
 ): NonNullable<ComparisonRunSeries["deltas"]> {
   return Object.fromEntries(
-    PERCENTILE_KEYS.map((key) => [key, target[key] - baseline[key]]),
+    PERCENTILE_KEYS.map((key) => {
+      const baselineValue = baseline[key];
+      const targetValue = target[key];
+      if (valueMode === "count") return [key, targetValue - baselineValue];
+      if (baselineValue === 0) return [key, targetValue === 0 ? 0 : 100];
+      return [key, ((targetValue - baselineValue) / baselineValue) * 100];
+    }),
   ) as NonNullable<ComparisonRunSeries["deltas"]>;
+}
+
+export function resolvePercentilesForFilter(
+  run: ComparisonRunSeries,
+  resourceFilter: ChartResourceFilter,
+): ComparisonRunSeries["percentiles"] {
+  if (resourceFilter === "all") return run.percentiles;
+  return percentilesFromHistogram(resolveHistogramForFilter(run, resourceFilter));
+}
+
+export type SummaryRun = ComparisonRunSeries & {
+  summaryPercentiles: ComparisonRunSeries["percentiles"];
+  summaryDeltas: ComparisonRunSeries["deltas"];
+};
+
+export function buildSummaryRuns(
+  runs: ComparisonRunSeries[],
+  baselineRunId: string | null,
+  resourceFilter: ChartResourceFilter,
+  valueMode: ChartValueMode,
+): SummaryRun[] {
+  const summaryRuns = runs.map((run) => ({
+    ...run,
+    summaryPercentiles: resolvePercentilesForFilter(run, resourceFilter),
+    summaryDeltas: null as ComparisonRunSeries["deltas"],
+  }));
+
+  const baseline = summaryRuns.find((run) => run.runId === baselineRunId);
+  if (!baseline) return summaryRuns;
+
+  return summaryRuns.map((run) => ({
+    ...run,
+    summaryDeltas:
+      run.runId === baselineRunId
+        ? null
+        : computeBaselineDeltas(baseline.summaryPercentiles, run.summaryPercentiles, valueMode),
+  }));
+}
+
+export function formatSummaryDelta(delta: number, valueMode: ChartValueMode): string {
+  const suffix = valueMode === "percent" ? "%" : "";
+  return `(${delta >= 0 ? "+" : ""}${delta.toFixed(1)}${suffix})`;
 }
 
 export function withBaseline(
   runs: ComparisonRunSeries[],
   baselineRunId: string | null,
+  valueMode: ChartValueMode = "count",
 ): ComparisonRunSeries[] {
   const baseline = runs.find((run) => run.runId === baselineRunId);
   if (!baseline) {
@@ -43,18 +116,47 @@ export function withBaseline(
   return runs.map((run) => ({
     ...run,
     isBaseline: run.runId === baselineRunId,
-    deltas: run.runId === baselineRunId ? null : computeBaselineDeltas(baseline.percentiles, run.percentiles),
+    deltas:
+      run.runId === baselineRunId
+        ? null
+        : computeBaselineDeltas(baseline.percentiles, run.percentiles, valueMode),
   }));
+}
+
+export function resolveHistogramForFilter(
+  run: ComparisonRunSeries,
+  resourceFilter: ChartResourceFilter,
+): HistogramBucket[] {
+  if (resourceFilter === "all") return run.histogram;
+  if (resourceFilter === "assets") {
+    return combineHistograms(ASSET_RESOURCE_TYPES.map((type) => run.histogramsByResourceType[type]));
+  }
+  return run.histogramsByResourceType[resourceFilter];
+}
+
+export function bucketChartValue(
+  histogram: HistogramBucket[],
+  bucketIndex: number,
+  valueMode: ChartValueMode,
+): number {
+  const count = histogram[bucketIndex]?.count ?? 0;
+  if (valueMode === "count") return count;
+
+  const total = histogramTotalCount(histogram);
+  if (total === 0) return 0;
+  return (count / total) * 100;
 }
 
 export function bucketTotalCount(
   runs: ComparisonRunSeries[],
   bucketIndex: number,
   visible: Record<string, boolean>,
+  resourceFilter: ChartResourceFilter,
 ): number {
   return runs.reduce((sum, run) => {
     if (!visible[run.runId]) return sum;
-    return sum + (run.histogram[bucketIndex]?.count ?? 0);
+    const histogram = resolveHistogramForFilter(run, resourceFilter);
+    return sum + (histogram[bucketIndex]?.count ?? 0);
   }, 0);
 }
 
@@ -71,8 +173,9 @@ export function resolveEffectiveChartRange(
   rangeMode: ChartRangeMode,
   customMinMs: number,
   customMaxMs: number,
+  resourceFilter: ChartResourceFilter = "all",
 ): EffectiveChartRange {
-  const histograms = visibleRuns.map((run) => run.histogram);
+  const histograms = visibleRuns.map((run) => resolveHistogramForFilter(run, resourceFilter));
   const lastIndex = lastNonZeroBucketIndexAcross(histograms);
   const autoMinMs = 0;
   const autoMaxMs =
@@ -122,4 +225,136 @@ export function formatChartRangeLabel(minMs: number, maxMs: number): string {
   };
 
   return `${formatMs(minMs)}–${formatMs(maxMs)}`;
+}
+
+export function formatChartAxisValue(value: number, valueMode: ChartValueMode): string {
+  if (valueMode === "percent") return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+  return String(Math.round(value));
+}
+
+export function formatChartTooltipValue(
+  run: ComparisonRunSeries,
+  bucketIndex: number,
+  resourceFilter: ChartResourceFilter,
+  valueMode: ChartValueMode,
+): string {
+  const histogram = resolveHistogramForFilter(run, resourceFilter);
+  const count = histogram[bucketIndex]?.count ?? 0;
+  if (valueMode === "count") return String(count);
+
+  const total = histogramTotalCount(histogram);
+  if (total === 0) return "0%";
+
+  const percent = histogramBucketPercentages(histogram)[bucketIndex] ?? 0;
+  return `${percent.toFixed(1)}% (${count})`;
+}
+
+const P95_Z_SCORE = 1.6448536269514722;
+const DISTRIBUTION_STEP_MS = 25;
+
+export type NormalDistributionParams = {
+  mean: number;
+  sigma: number;
+};
+
+export type DistributionChartRow = {
+  latencyMs: number;
+  axisLabel: string;
+  [runName: string]: number | string;
+};
+
+export type DistributionPercentileMarker = {
+  runId: string;
+  runName: string;
+  color: string;
+  percentiles: ComparisonRunSeries["percentiles"];
+};
+
+export function estimateNormalDistributionParams(
+  percentiles: ComparisonRunSeries["percentiles"],
+): NormalDistributionParams | null {
+  const mean = percentiles.p50;
+  if (mean <= 0) return null;
+
+  const spread = Math.max(percentiles.p95 - percentiles.p50, percentiles.p75 - percentiles.p50, 1);
+  const sigma = Math.max(spread / P95_Z_SCORE, 1);
+  return { mean, sigma };
+}
+
+function normalPdf(x: number, mean: number, sigma: number): number {
+  const z = (x - mean) / sigma;
+  return Math.exp(-0.5 * z * z) / (sigma * Math.sqrt(2 * Math.PI));
+}
+
+export function buildDistributionChartData(
+  summaryRuns: SummaryRun[],
+  visible: Record<string, boolean>,
+): {
+  data: DistributionChartRow[];
+  axisTicks: number[];
+  range: { minMs: number; maxMs: number };
+  percentileMarkers: DistributionPercentileMarker[];
+} {
+  const activeRuns = summaryRuns.filter((run) => visible[run.runId]);
+  const paramsByRun = activeRuns.flatMap((run) => {
+    const params = estimateNormalDistributionParams(run.summaryPercentiles);
+    return params ? [{ run, params }] : [];
+  });
+
+  if (paramsByRun.length === 0) {
+    return { data: [], axisTicks: [], range: { minMs: 0, maxMs: 0 }, percentileMarkers: [] };
+  }
+
+  let minMs = Infinity;
+  let maxMs = -Infinity;
+  for (const { params } of paramsByRun) {
+    minMs = Math.min(minMs, Math.max(0, params.mean - 4 * params.sigma));
+    maxMs = Math.max(maxMs, params.mean + 4 * params.sigma);
+  }
+
+  minMs = Math.floor(minMs / DISTRIBUTION_STEP_MS) * DISTRIBUTION_STEP_MS;
+  maxMs = Math.min(HISTOGRAM_MAX_MS, Math.ceil(maxMs / DISTRIBUTION_STEP_MS) * DISTRIBUTION_STEP_MS);
+  if (maxMs <= minMs) maxMs = minMs + 500;
+
+  const tickIntervalMs = axisTickIntervalMs(maxMs - minMs);
+  const data: DistributionChartRow[] = [];
+
+  for (let latencyMs = minMs; latencyMs <= maxMs; latencyMs += DISTRIBUTION_STEP_MS) {
+    const row: DistributionChartRow = {
+      latencyMs,
+      axisLabel: shouldShowAxisTick(latencyMs, tickIntervalMs) ? formatAxisTick(latencyMs) : "",
+    };
+
+    for (const { run, params } of paramsByRun) {
+      row[run.runName] = normalPdf(latencyMs, params.mean, params.sigma);
+    }
+
+    data.push(row);
+  }
+
+  for (const { run } of paramsByRun) {
+    const peak = Math.max(...data.map((row) => Number(row[run.runName] ?? 0)));
+    if (peak <= 0) continue;
+
+    for (const row of data) {
+      const raw = Number(row[run.runName] ?? 0);
+      row[run.runName] = (raw / peak) * 100;
+    }
+  }
+
+  return {
+    data,
+    axisTicks: data.filter((row) => row.axisLabel).map((row) => row.latencyMs),
+    range: { minMs, maxMs },
+    percentileMarkers: activeRuns.map((run) => ({
+      runId: run.runId,
+      runName: run.runName,
+      color: run.color,
+      percentiles: run.summaryPercentiles,
+    })),
+  };
+}
+
+export function formatDistributionAxisValue(value: number): string {
+  return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
 }

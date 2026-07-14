@@ -37,14 +37,25 @@ export {
   computePercentiles,
   createRunId,
   createTemplateId,
-  histogramBucketPercentages,
-  histogramTotalCount,
   isSameOrigin,
   normalizeUrl,
   percentile,
   primaryLatency,
   sleep,
 } from "./utils.js";
+export {
+  axisTickIntervalMs,
+  bucketIndicesInRange,
+  combineHistograms,
+  computeAutoChartMaxMs,
+  histogramBucketPercentages,
+  histogramTotalCount,
+  lastNonZeroBucketIndex,
+  lastNonZeroBucketIndexAcross,
+  percentilesFromHistogram,
+  shouldShowAxisTick,
+  validateChartRange,
+} from "./histogram.js";
 
 export type {
   ComparisonResult,
