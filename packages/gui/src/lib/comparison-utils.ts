@@ -1,6 +1,7 @@
 import type { ComparisonRunSeries, HistogramBucket, ResourceType } from "@sitebench/core";
 import {
   axisTickIntervalMs,
+  bucketIndicesInRange,
   combineHistograms,
   computeAutoChartMaxMs,
   histogramBucketPercentages,
@@ -249,14 +250,6 @@ export function formatChartTooltipValue(
   return `${percent.toFixed(1)}% (${count})`;
 }
 
-const P95_Z_SCORE = 1.6448536269514722;
-const DISTRIBUTION_STEP_MS = 25;
-
-export type NormalDistributionParams = {
-  mean: number;
-  sigma: number;
-};
-
 export type DistributionChartRow = {
   latencyMs: number;
   axisLabel: string;
@@ -270,82 +263,67 @@ export type DistributionPercentileMarker = {
   percentiles: ComparisonRunSeries["percentiles"];
 };
 
-export function estimateNormalDistributionParams(
-  percentiles: ComparisonRunSeries["percentiles"],
-): NormalDistributionParams | null {
-  const mean = percentiles.p50;
-  if (mean <= 0) return null;
-
-  const spread = Math.max(percentiles.p95 - percentiles.p50, percentiles.p75 - percentiles.p50, 1);
-  const sigma = Math.max(spread / P95_Z_SCORE, 1);
-  return { mean, sigma };
-}
-
-function normalPdf(x: number, mean: number, sigma: number): number {
-  const z = (x - mean) / sigma;
-  return Math.exp(-0.5 * z * z) / (sigma * Math.sqrt(2 * Math.PI));
-}
-
 export function buildDistributionChartData(
   summaryRuns: SummaryRun[],
   visible: Record<string, boolean>,
+  resourceFilter: ChartResourceFilter,
+  range: { minMs: number; maxMs: number },
 ): {
   data: DistributionChartRow[];
   axisTicks: number[];
   range: { minMs: number; maxMs: number };
+  maxPercent: number;
   percentileMarkers: DistributionPercentileMarker[];
 } {
   const activeRuns = summaryRuns.filter((run) => visible[run.runId]);
-  const paramsByRun = activeRuns.flatMap((run) => {
-    const params = estimateNormalDistributionParams(run.summaryPercentiles);
-    return params ? [{ run, params }] : [];
-  });
-
-  if (paramsByRun.length === 0) {
-    return { data: [], axisTicks: [], range: { minMs: 0, maxMs: 0 }, percentileMarkers: [] };
+  if (activeRuns.length === 0) {
+    return { data: [], axisTicks: [], range: { minMs: 0, maxMs: 0 }, maxPercent: 0, percentileMarkers: [] };
   }
 
-  let minMs = Infinity;
-  let maxMs = -Infinity;
-  for (const { params } of paramsByRun) {
-    minMs = Math.min(minMs, Math.max(0, params.mean - 4 * params.sigma));
-    maxMs = Math.max(maxMs, params.mean + 4 * params.sigma);
+  const bucketCount = activeRuns[0]?.histogram.length ?? 0;
+  if (bucketCount === 0) {
+    return { data: [], axisTicks: [], range: { minMs: 0, maxMs: 0 }, maxPercent: 0, percentileMarkers: [] };
   }
 
-  minMs = Math.floor(minMs / DISTRIBUTION_STEP_MS) * DISTRIBUTION_STEP_MS;
-  maxMs = Math.min(HISTOGRAM_MAX_MS, Math.ceil(maxMs / DISTRIBUTION_STEP_MS) * DISTRIBUTION_STEP_MS);
-  if (maxMs <= minMs) maxMs = minMs + 500;
+  const { startIndex, endIndex } = bucketIndicesInRange(
+    range.minMs,
+    range.maxMs,
+    HISTOGRAM_BUCKET_SIZE_MS,
+    bucketCount,
+  );
 
-  const tickIntervalMs = axisTickIntervalMs(maxMs - minMs);
+  const tickIntervalMs = axisTickIntervalMs(range.maxMs - range.minMs);
   const data: DistributionChartRow[] = [];
+  let maxPercent = 0;
 
-  for (let latencyMs = minMs; latencyMs <= maxMs; latencyMs += DISTRIBUTION_STEP_MS) {
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    const bucket = activeRuns[0].histogram[index];
+    if (!bucket) continue;
+
     const row: DistributionChartRow = {
-      latencyMs,
-      axisLabel: shouldShowAxisTick(latencyMs, tickIntervalMs) ? formatAxisTick(latencyMs) : "",
+      latencyMs: bucket.minMs,
+      axisLabel: shouldShowAxisTick(bucket.minMs, tickIntervalMs) ? formatAxisTick(bucket.minMs) : "",
     };
 
-    for (const { run, params } of paramsByRun) {
-      row[run.runName] = normalPdf(latencyMs, params.mean, params.sigma);
+    for (const run of activeRuns) {
+      const histogram = resolveHistogramForFilter(run, resourceFilter);
+      const percent = bucketChartValue(histogram, index, "percent");
+      row[run.runName] = percent;
+      maxPercent = Math.max(maxPercent, percent);
     }
 
     data.push(row);
   }
 
-  for (const { run } of paramsByRun) {
-    const peak = Math.max(...data.map((row) => Number(row[run.runName] ?? 0)));
-    if (peak <= 0) continue;
-
-    for (const row of data) {
-      const raw = Number(row[run.runName] ?? 0);
-      row[run.runName] = (raw / peak) * 100;
-    }
+  if (data.length === 0 || maxPercent <= 0) {
+    return { data: [], axisTicks: [], range: { minMs: 0, maxMs: 0 }, maxPercent: 0, percentileMarkers: [] };
   }
 
   return {
     data,
     axisTicks: data.filter((row) => row.axisLabel).map((row) => row.latencyMs),
-    range: { minMs, maxMs },
+    range: { minMs: range.minMs, maxMs: range.maxMs },
+    maxPercent: Math.ceil(maxPercent * 1.12 * 10) / 10,
     percentileMarkers: activeRuns.map((run) => ({
       runId: run.runId,
       runName: run.runName,

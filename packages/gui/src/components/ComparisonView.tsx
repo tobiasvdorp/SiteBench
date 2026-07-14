@@ -130,7 +130,7 @@ function DistributionTooltip({ active, payload, label, percentileMarkers }: Dist
           ))}
         </ul>
       ) : (
-        <p className="text-xs text-muted-foreground">No density from visible runs</p>
+        <p className="text-xs text-muted-foreground">No requests from visible runs in this bucket</p>
       )}
       {percentileMarkers.length > 0 && (
         <div className="mt-2 space-y-1 border-t border-border/50 pt-2">
@@ -287,14 +287,14 @@ export function ComparisonView({ comparison }: Props) {
     [summaryRuns, visible],
   );
 
-  const distributionChart = useMemo(
-    () => buildDistributionChartData(summaryRuns, visible),
-    [summaryRuns, visible],
-  );
-
   const chartRange = useMemo(
     () => resolveEffectiveChartRange(visibleRuns, rangeMode, customMinMs, customMaxMs, resourceFilter),
     [visibleRuns, rangeMode, customMinMs, customMaxMs, resourceFilter],
+  );
+
+  const distributionChart = useMemo(
+    () => buildDistributionChartData(summaryRuns, visible, resourceFilter, chartRange),
+    [summaryRuns, visible, resourceFilter, chartRange.minMs, chartRange.maxMs],
   );
 
   const chartData = useMemo(() => {
@@ -690,8 +690,8 @@ export function ComparisonView({ comparison }: Props) {
             title="Percentile summary"
             description={
               valueMode === "percent"
-                ? `Latency percentiles for ${chartResourceFilterLabel(resourceFilter).toLowerCase()} with baseline deltas as relative change. The chart below shows estimated normal distributions fitted from p50 and p95; dashed lines mark p50 per run.`
-                : `Latency percentiles for ${chartResourceFilterLabel(resourceFilter).toLowerCase()} with baseline deltas in milliseconds. The chart below shows estimated normal distributions fitted from p50 and p95; dashed lines mark p50 per run.`
+                ? `Latency percentiles for ${chartResourceFilterLabel(resourceFilter).toLowerCase()} with baseline deltas as relative change. The chart below shows each run's share of requests per ${HISTOGRAM_BUCKET_SIZE_MS} ms bucket; dashed lines mark p50 per run.`
+                : `Latency percentiles for ${chartResourceFilterLabel(resourceFilter).toLowerCase()} with baseline deltas in milliseconds. The chart below shows each run's share of requests per ${HISTOGRAM_BUCKET_SIZE_MS} ms bucket; dashed lines mark p50 per run.`
             }
           />
         </CardHeader>
@@ -758,7 +758,7 @@ export function ComparisonView({ comparison }: Props) {
           ) : distributionChart.data.length === 0 ? (
             <EmptyState
               title="No distribution data"
-              description="Not enough percentile data to estimate distributions for the visible runs."
+              description="No request distribution data for the visible runs in the current range."
               className="min-h-[280px] border-0 bg-transparent"
             />
           ) : (
@@ -778,7 +778,7 @@ export function ComparisonView({ comparison }: Props) {
                   />
                   <YAxis
                     allowDecimals
-                    domain={[0, 100]}
+                    domain={[0, distributionChart.maxPercent]}
                     tickFormatter={(value) => formatDistributionAxisValue(Number(value))}
                     tick={{ fill: CHART_TICK_COLOR, fontSize: 10, fontFamily: "var(--font-mono)" }}
                     axisLine={{ stroke: CHART_GRID_COLOR }}
