@@ -128,6 +128,44 @@ describe("CrawlOrchestrator", () => {
     expect(aggregates.totalRequests).toBeGreaterThan(aggregates.pageCount);
   });
 
+  it("fetches images before additional pages when using multiple workers", async () => {
+    const store = createInMemoryStore();
+    const snapshot = {
+      ...createSnapshot(baseUrl, true, 2),
+      workerCount: 4,
+      rpsLimit: 100,
+    };
+    const run = store.createRun("parallel-images-before-pages", baseUrl, snapshot);
+    const recorder = new RunRecorder(store, run.id, { excludePagesFromResults: false });
+    const baseMeasurer = new HttpMeasurer(snapshot);
+    let page2Started = false;
+    let imagesBeforePage2 = 0;
+
+    const measurer = {
+      probeStartUrl: baseMeasurer.probeStartUrl.bind(baseMeasurer),
+      measure: async (url: string, resourceType?: ResourceType) => {
+        if (resourceType === "page" && url.endsWith("/page2")) page2Started = true;
+        const result = await baseMeasurer.measure(url, resourceType);
+        if (resourceType === "image" && !page2Started) imagesBeforePage2 += 1;
+        return result;
+      },
+    } as HttpMeasurer;
+
+    const orchestrator = new CrawlOrchestrator({
+      config: snapshot,
+      origin: baseUrl,
+      recorder,
+      measurer,
+    });
+
+    await orchestrator.run();
+    const requests = store.getRequestsForRun(run.id);
+
+    expect(imagesBeforePage2).toBeGreaterThan(0);
+    expect(requests.filter((request) => request.resourceType === "image").length).toBeGreaterThan(0);
+    expect(fixture.getHits().get("/page2")).toBeGreaterThan(0);
+  });
+
   it("discovers css-referenced fonts from fetched stylesheets", async () => {
     const { requests } = await runFixtureCrawl(baseUrl, false, 1);
 

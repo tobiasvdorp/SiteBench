@@ -6,6 +6,7 @@ export const DEFAULT_RPS_LIMIT = 2;
 export const DEFAULT_WORKER_COUNT = 1;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
+export const START_URL_PROBE_TIMEOUT_MS = 10_000;
 export const DEFAULT_MAX_REDIRECTS = 5;
 export const DEFAULT_MAX_RETRIES = 2;
 export const DEFAULT_ALLOW_IMAGES = false;

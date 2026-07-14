@@ -1,4 +1,5 @@
 import { fetch, Agent, type Dispatcher } from "undici";
+import { START_URL_PROBE_TIMEOUT_MS } from "./defaults.js";
 import type { CrawlConfig, ErrorClass, RequestTimings } from "./types.js";
 import { detectResourceType } from "./utils.js";
 import type { ResourceType } from "./types.js";
@@ -217,7 +218,17 @@ export class HttpMeasurer {
   }
 
   async probeStartUrl(url: string): Promise<{ ok: true } | { ok: false; message: string }> {
-    const result = await this.measure(url, "page");
+    const probeTimeoutMs = Math.min(this.config.requestTimeoutMs, START_URL_PROBE_TIMEOUT_MS);
+    const probeConfig =
+      probeTimeoutMs === this.config.requestTimeoutMs
+        ? this.config
+        : {
+            ...this.config,
+            requestTimeoutMs: probeTimeoutMs,
+            connectTimeoutMs: Math.min(this.config.connectTimeoutMs, probeTimeoutMs),
+          };
+    const measurer = probeConfig === this.config ? this : new HttpMeasurer(probeConfig, this.transport);
+    const result = await measurer.measure(url, "page");
     if (result.errorClass && result.errorClass !== "http") {
       return { ok: false, message: result.errorMessage ?? "Start URL is unreachable" };
     }

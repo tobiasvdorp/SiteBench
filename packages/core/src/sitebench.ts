@@ -160,11 +160,7 @@ export class SiteBench {
       siteOrigin: origin,
     };
 
-    const measurer = new HttpMeasurer(validation.config);
-    const probe = await measurer.probeStartUrl(validation.config.startUrl);
-    if (!probe.ok) throw new StartFailure(probe.message);
-
-    const run = this.store.createRun(input.runName.trim(), origin, snapshot);
+    const run = this.store.createRun(input.runName.trim(), origin, snapshot, "pending");
     const controller = new AbortController();
     this.activeRuns.set(run.id, controller);
 
@@ -184,18 +180,39 @@ export class SiteBench {
     listener: RunListener | undefined,
     signal: AbortSignal,
   ) {
-    const recorder = new RunRecorder(
-      this.store,
-      run.id,
-      { excludePagesFromResults: config.excludePagesFromResults },
-      listener,
-    );
+    const measurer = new HttpMeasurer(config);
 
     try {
+      if (signal.aborted) {
+        this.store.interruptRun(run.id, "Run stopped");
+        return;
+      }
+
+      const probe = await measurer.probeStartUrl(config.startUrl);
+      if (signal.aborted) {
+        this.store.interruptRun(run.id, "Run stopped");
+        return;
+      }
+      if (!probe.ok) {
+        this.store.failRun(run.id, probe.message);
+        listener?.({ type: "failed", runId: run.id, message: probe.message });
+        return;
+      }
+
+      this.store.updateRunStatus(run.id, "running");
+
+      const recorder = new RunRecorder(
+        this.store,
+        run.id,
+        { excludePagesFromResults: config.excludePagesFromResults },
+        listener,
+      );
+
       const orchestrator = new CrawlOrchestrator({
         config,
         origin,
         recorder,
+        measurer,
         abortSignal: signal,
       });
 
@@ -214,7 +231,7 @@ export class SiteBench {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Run failed";
-      recorder.fail(message);
+      this.store.failRun(run.id, message);
       listener?.({ type: "failed", runId: run.id, message });
     } finally {
       this.activeRuns.delete(run.id);

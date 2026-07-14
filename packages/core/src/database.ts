@@ -277,22 +277,27 @@ export class DatabaseStore {
     return Number(result.changes) > 0;
   }
 
-  createRun(name: string, siteOrigin: string, snapshot: RunConfigSnapshot): Run {
+  createRun(
+    name: string,
+    siteOrigin: string,
+    snapshot: RunConfigSnapshot,
+    status: RunStatus = "running",
+  ): Run {
     const id = createRunId();
     const startedAt = nowIso();
 
     this.db
       .prepare(
         `INSERT INTO runs (id, name, site_origin, status, config_snapshot_json, started_at, truncated)
-         VALUES (?, ?, ?, 'running', ?, ?, 0)`,
+         VALUES (?, ?, ?, ?, ?, ?, 0)`,
       )
-      .run(id, name, siteOrigin, JSON.stringify(snapshot), startedAt);
+      .run(id, name, siteOrigin, status, JSON.stringify(snapshot), startedAt);
 
     return {
       id,
       name,
       siteOrigin,
-      status: "running",
+      status,
       configSnapshot: snapshot,
       startedAt,
       completedAt: null,

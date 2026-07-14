@@ -85,6 +85,7 @@ export class CrawlOrchestrator {
 
     const workers = Array.from({ length: this.config.workerCount }, () => this.runWorker());
     await Promise.all(workers);
+    await this.drainRemainingAssets();
 
     const queueHasPages = this.pageQueue.length > 0;
     const truncationReason = this.policy.getTruncationReason(queueHasPages, this.timeLimitReached);
@@ -122,20 +123,35 @@ export class CrawlOrchestrator {
   private claimWork(): WorkItem | null {
     if (this.policy.isPageLimitReached()) this.pageQueue = [];
 
-    if (!this.policy.isPageLimitReached() && this.canStartPageFetch()) {
-      const url = this.pageQueue.shift();
-      if (url) {
-        this.inFlight += 1;
-        this.pagesInFlight += 1;
-        return { kind: "page", url };
-      }
+    const asset = this.assetQueue.shift();
+    if (asset) {
+      this.inFlight += 1;
+      return { kind: "asset", item: asset };
     }
 
-    const asset = this.assetQueue.shift();
-    if (!asset) return null;
+    if (!this.policy.isPageLimitReached() && this.canStartPageFetch()) {
+      const url = this.pageQueue.shift();
+      if (!url) return null;
 
-    this.inFlight += 1;
-    return { kind: "asset", item: asset };
+      this.inFlight += 1;
+      this.pagesInFlight += 1;
+      return { kind: "page", url };
+    }
+
+    return null;
+  }
+
+  private async drainRemainingAssets() {
+    while (this.assetQueue.length > 0 && !this.stopped && !this.abortSignal?.aborted) {
+      if (this.isTimeLimitReached()) {
+        this.timeLimitReached = true;
+        return;
+      }
+
+      const item = this.assetQueue.shift();
+      if (!item) return;
+      await this.fetchAsset(item);
+    }
   }
 
   private canStartPageFetch() {
