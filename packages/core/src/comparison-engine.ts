@@ -31,6 +31,13 @@ export class ComparisonEngine {
         p99: run.aggregates.p99,
       };
 
+      const storedPercentiles = run.aggregates.percentilesByResourceType;
+      const storedAssetPercentiles = run.aggregates.assetPercentiles;
+      const computedPercentiles =
+        storedPercentiles && storedAssetPercentiles
+          ? { percentilesByResourceType: storedPercentiles, assetPercentiles: storedAssetPercentiles }
+          : this.store.computePercentilesByResourceType(selection.runId);
+
       runs.push({
         runId: run.id,
         runName: run.name,
@@ -42,6 +49,8 @@ export class ComparisonEngine {
           run.aggregates.latencyHistogramsByResourceType ??
           this.store.computeHistogramsByResourceType(selection.runId),
         percentiles,
+        percentilesByResourceType: computedPercentiles.percentilesByResourceType,
+        assetPercentiles: computedPercentiles.assetPercentiles,
         deltas: null,
       });
     }

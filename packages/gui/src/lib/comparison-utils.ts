@@ -9,7 +9,6 @@ import {
   HISTOGRAM_BUCKET_SIZE_MS,
   HISTOGRAM_MAX_MS,
   lastNonZeroBucketIndexAcross,
-  percentilesFromHistogram,
   shouldShowAxisTick,
   validateChartRange,
 } from "@sitebench/core/histogram";
@@ -73,7 +72,8 @@ export function resolvePercentilesForFilter(
   resourceFilter: ChartResourceFilter,
 ): ComparisonRunSeries["percentiles"] {
   if (resourceFilter === "all") return run.percentiles;
-  return percentilesFromHistogram(resolveHistogramForFilter(run, resourceFilter));
+  if (resourceFilter === "assets") return run.assetPercentiles;
+  return run.percentilesByResourceType[resourceFilter];
 }
 
 export type SummaryRun = ComparisonRunSeries & {

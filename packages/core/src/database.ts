@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import type {
   CrawlConfig,
   HistogramBucket,
+  LatencyPercentiles,
   RequestRecord,
   ResourceType,
   Run,
@@ -16,6 +17,32 @@ import { buildHistogram, computePercentiles, createRequestId, createRunId, creat
 import { DEFAULT_CRAWL_CONFIG } from "./defaults.js";
 
 const RESOURCE_TYPES: ResourceType[] = ["page", "css", "js", "font", "image", "other"];
+const ASSET_RESOURCE_TYPES: ResourceType[] = ["css", "js", "font", "image", "other"];
+
+type RequestLatencyRow = {
+  resource_type: string;
+  ttfb_ms: number | null;
+  total_ms: number;
+};
+
+function latenciesForResourceType(rows: RequestLatencyRow[], type: ResourceType): number[] {
+  return rows
+    .filter((row) => row.resource_type === type)
+    .map((row) => row.ttfb_ms ?? row.total_ms);
+}
+
+function buildPercentilesByResourceType(rows: RequestLatencyRow[]) {
+  const percentilesByResourceType = Object.fromEntries(
+    RESOURCE_TYPES.map((type) => [type, computePercentiles(latenciesForResourceType(rows, type))]),
+  ) as Record<ResourceType, LatencyPercentiles>;
+
+  const assetLatencies = ASSET_RESOURCE_TYPES.flatMap((type) => latenciesForResourceType(rows, type));
+
+  return {
+    percentilesByResourceType,
+    assetPercentiles: computePercentiles(assetLatencies),
+  };
+}
 
 function countResourceTypes(rows: { resource_type: string }[]) {
   return Object.fromEntries(
@@ -429,15 +456,9 @@ export class DatabaseStore {
     const percentiles = computePercentiles(latencies);
     const histogram = buildHistogram(latencies);
     const latencyHistogramsByResourceType = Object.fromEntries(
-      RESOURCE_TYPES.map((type) => [
-        type,
-        buildHistogram(
-          rows
-            .filter((row) => row.resource_type === type)
-            .map((row) => row.ttfb_ms ?? row.total_ms),
-        ),
-      ]),
+      RESOURCE_TYPES.map((type) => [type, buildHistogram(latenciesForResourceType(rows, type))]),
     ) as Record<ResourceType, HistogramBucket[]>;
+    const { percentilesByResourceType, assetPercentiles } = buildPercentilesByResourceType(rows);
 
     return {
       totalRequests: rows.length,
@@ -447,6 +468,8 @@ export class DatabaseStore {
       ...percentiles,
       latencyHistogram: histogram,
       latencyHistogramsByResourceType,
+      percentilesByResourceType,
+      assetPercentiles,
     };
   }
 
@@ -456,22 +479,22 @@ export class DatabaseStore {
         `SELECT resource_type, ttfb_ms, total_ms
          FROM requests WHERE run_id = ?`,
       )
-      .all(runId) as {
-      resource_type: string;
-      ttfb_ms: number | null;
-      total_ms: number;
-    }[];
+      .all(runId) as RequestLatencyRow[];
 
     return Object.fromEntries(
-      RESOURCE_TYPES.map((type) => [
-        type,
-        buildHistogram(
-          rows
-            .filter((row) => row.resource_type === type)
-            .map((row) => row.ttfb_ms ?? row.total_ms),
-        ),
-      ]),
+      RESOURCE_TYPES.map((type) => [type, buildHistogram(latenciesForResourceType(rows, type))]),
     ) as Record<ResourceType, HistogramBucket[]>;
+  }
+
+  computePercentilesByResourceType(runId: string) {
+    const rows = this.db
+      .prepare(
+        `SELECT resource_type, ttfb_ms, total_ms
+         FROM requests WHERE run_id = ?`,
+      )
+      .all(runId) as RequestLatencyRow[];
+
+    return buildPercentilesByResourceType(rows);
   }
 
   getRequestsForRun(

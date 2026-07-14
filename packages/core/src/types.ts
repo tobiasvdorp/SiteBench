@@ -77,6 +77,14 @@ export type RequestRecord = {
 
 export type ResourceTypeCounts = Record<ResourceType, number>;
 
+export type LatencyPercentiles = {
+  p50: number;
+  p75: number;
+  p90: number;
+  p95: number;
+  p99: number;
+};
+
 export type RunAggregates = {
   totalRequests: number;
   errorCount: number;
@@ -89,6 +97,8 @@ export type RunAggregates = {
   p99: number;
   latencyHistogram: HistogramBucket[];
   latencyHistogramsByResourceType?: Record<ResourceType, HistogramBucket[]>;
+  percentilesByResourceType?: Record<ResourceType, LatencyPercentiles>;
+  assetPercentiles?: LatencyPercentiles;
 };
 
 export type HistogramBucket = {
@@ -165,13 +175,9 @@ export type ComparisonRunSeries = {
   isBaseline: boolean;
   histogram: HistogramBucket[];
   histogramsByResourceType: Record<ResourceType, HistogramBucket[]>;
-  percentiles: {
-    p50: number;
-    p75: number;
-    p90: number;
-    p95: number;
-    p99: number;
-  };
+  percentiles: LatencyPercentiles;
+  percentilesByResourceType: Record<ResourceType, LatencyPercentiles>;
+  assetPercentiles: LatencyPercentiles;
   deltas: {
     p50: number | null;
     p75: number | null;
