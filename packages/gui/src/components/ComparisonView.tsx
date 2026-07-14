@@ -19,7 +19,7 @@ import {
   HISTOGRAM_MAX_MS,
   shouldShowAxisTick,
 } from "@sitebench/core/histogram";
-import { ChartSpline, Eye, EyeOff, Star, Table2 } from "lucide-react";
+import { Eye, EyeOff, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -53,7 +53,6 @@ import {
   getStoredChartResourceFilter,
   getStoredChartValueMode,
   getStoredRunColor,
-  getStoredSummaryViewMode,
   getStoredVisibility,
   setStoredBaseline,
   setStoredChartRangeMaxMs,
@@ -62,12 +61,10 @@ import {
   setStoredChartResourceFilter,
   setStoredChartValueMode,
   setStoredRunColor,
-  setStoredSummaryViewMode,
   setStoredVisibility,
   type ChartRangeMode,
   type ChartResourceFilter,
   type ChartValueMode,
-  type SummaryViewMode,
 } from "@/lib/comparison-preferences";
 import {
   bucketChartValue,
@@ -263,7 +260,6 @@ export function ComparisonView({ comparison }: Props) {
   const [rangeMode, setRangeMode] = useState<ChartRangeMode>(() => getStoredChartRangeMode());
   const [valueMode, setValueMode] = useState<ChartValueMode>(() => getStoredChartValueMode());
   const [resourceFilter, setResourceFilter] = useState<ChartResourceFilter>(() => getStoredChartResourceFilter());
-  const [summaryViewMode, setSummaryViewMode] = useState<SummaryViewMode>(() => getStoredSummaryViewMode());
   const [customMinMs, setCustomMinMs] = useState(() => getStoredChartRangeMinMs() ?? 0);
   const [customMaxMs, setCustomMaxMs] = useState(() => getStoredChartRangeMaxMs() ?? HISTOGRAM_MAX_MS);
 
@@ -375,11 +371,6 @@ export function ComparisonView({ comparison }: Props) {
   const setChartResourceFilter = (filter: ChartResourceFilter) => {
     setResourceFilter(filter);
     setStoredChartResourceFilter(filter);
-  };
-
-  const setSummaryView = (mode: SummaryViewMode) => {
-    setSummaryViewMode(mode);
-    setStoredSummaryViewMode(mode);
   };
 
   const updateCustomMinMs = (value: number) => {
@@ -698,94 +689,62 @@ export function ComparisonView({ comparison }: Props) {
           <SectionHeader
             title="Percentile summary"
             description={
-              summaryViewMode === "distribution"
-                ? `Estimated normal distributions for ${chartResourceFilterLabel(resourceFilter).toLowerCase()}, fitted from p50 and p95. Dashed lines mark p50 per run.`
-                : valueMode === "percent"
-                  ? `Latency percentiles for ${chartResourceFilterLabel(resourceFilter).toLowerCase()} with baseline deltas as relative change.`
-                  : `Latency percentiles for ${chartResourceFilterLabel(resourceFilter).toLowerCase()} with baseline deltas in milliseconds.`
-            }
-            action={
-              <div
-                className="inline-flex rounded-lg border border-border/60 p-0.5"
-                role="group"
-                aria-label="Percentile summary view mode"
-              >
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={summaryViewMode === "table" ? "default" : "ghost"}
-                  className="h-7 gap-1.5 px-3"
-                  onClick={() => setSummaryView("table")}
-                  aria-pressed={summaryViewMode === "table"}
-                >
-                  <Table2 className="size-3.5" />
-                  Table
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={summaryViewMode === "distribution" ? "default" : "ghost"}
-                  className="h-7 gap-1.5 px-3"
-                  onClick={() => setSummaryView("distribution")}
-                  aria-pressed={summaryViewMode === "distribution"}
-                >
-                  <ChartSpline className="size-3.5" />
-                  Distribution
-                </Button>
-              </div>
+              valueMode === "percent"
+                ? `Latency percentiles for ${chartResourceFilterLabel(resourceFilter).toLowerCase()} with baseline deltas as relative change. The chart below shows estimated normal distributions fitted from p50 and p95; dashed lines mark p50 per run.`
+                : `Latency percentiles for ${chartResourceFilterLabel(resourceFilter).toLowerCase()} with baseline deltas in milliseconds. The chart below shows estimated normal distributions fitted from p50 and p95; dashed lines mark p50 per run.`
             }
           />
         </CardHeader>
-        <CardContent>
-          {summaryViewMode === "table" ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Run</TableHead>
-                  <TableHead>p50</TableHead>
-                  <TableHead>p75</TableHead>
-                  <TableHead>p90</TableHead>
-                  <TableHead>p95</TableHead>
-                  <TableHead>p99</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {summaryRuns.map((run) => (
-                  <TableRow
-                    key={run.runId}
-                    className={cn({
-                      "opacity-50": !visible[run.runId],
-                      "bg-primary/5": run.isBaseline,
-                    })}
-                  >
-                    <TableCell>
-                      <span className="font-medium" style={{ color: run.color }}>
-                        {run.runName}
-                      </span>
-                      {run.isBaseline && (
-                        <Badge variant="warning" className="ml-2">
-                          baseline
-                        </Badge>
-                      )}
-                      {!visible[run.runId] && (
-                        <Badge variant="muted" className="ml-2">
-                          hidden
-                        </Badge>
+        <CardContent className="space-y-6">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Run</TableHead>
+                <TableHead>p50</TableHead>
+                <TableHead>p75</TableHead>
+                <TableHead>p90</TableHead>
+                <TableHead>p95</TableHead>
+                <TableHead>p99</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {summaryRuns.map((run) => (
+                <TableRow
+                  key={run.runId}
+                  className={cn({
+                    "opacity-50": !visible[run.runId],
+                    "bg-primary/5": run.isBaseline,
+                  })}
+                >
+                  <TableCell>
+                    <span className="font-medium" style={{ color: run.color }}>
+                      {run.runName}
+                    </span>
+                    {run.isBaseline && (
+                      <Badge variant="warning" className="ml-2">
+                        baseline
+                      </Badge>
+                    )}
+                    {!visible[run.runId] && (
+                      <Badge variant="muted" className="ml-2">
+                        hidden
+                      </Badge>
+                    )}
+                  </TableCell>
+                  {(["p50", "p75", "p90", "p95", "p99"] as const).map((key) => (
+                    <TableCell key={key}>
+                      <Metric unit="ms">{run.summaryPercentiles[key].toFixed(1)}</Metric>
+                      {run.summaryDeltas && (
+                        <DeltaValue delta={run.summaryDeltas[key]!} valueMode={valueMode} />
                       )}
                     </TableCell>
-                    {(["p50", "p75", "p90", "p95", "p99"] as const).map((key) => (
-                      <TableCell key={key}>
-                        <Metric unit="ms">{run.summaryPercentiles[key].toFixed(1)}</Metric>
-                        {run.summaryDeltas && (
-                          <DeltaValue delta={run.summaryDeltas[key]!} valueMode={valueMode} />
-                        )}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : visibleSummaryRuns.length === 0 ? (
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+
+          {visibleSummaryRuns.length === 0 ? (
             <EmptyState
               title="All runs hidden"
               description="Show at least one run to display the distribution curves."
@@ -803,88 +762,68 @@ export function ComparisonView({ comparison }: Props) {
               className="min-h-[280px] border-0 bg-transparent"
             />
           ) : (
-            <div className="space-y-3">
-              <div className="min-h-[320px] w-full rounded-lg border border-border/40 bg-surface-elevated/30 p-2">
-                <ResponsiveContainer width="100%" height={340}>
-                  <AreaChart data={distributionChart.data} margin={{ top: 8, right: 12, left: 0, bottom: 20 }}>
-                    <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" vertical={false} />
-                    <XAxis
-                      dataKey="latencyMs"
-                      type="number"
-                      domain={[distributionChart.range.minMs, distributionChart.range.maxMs]}
-                      ticks={distributionChart.axisTicks}
-                      tick={{ fontSize: 10, fill: CHART_TICK_COLOR, fontFamily: "var(--font-mono)" }}
-                      tickFormatter={(value) => formatAxisTick(Number(value))}
-                      axisLine={{ stroke: CHART_GRID_COLOR }}
-                      tickLine={{ stroke: CHART_GRID_COLOR }}
-                    />
-                    <YAxis
-                      allowDecimals
-                      domain={[0, 100]}
-                      tickFormatter={(value) => formatDistributionAxisValue(Number(value))}
-                      tick={{ fill: CHART_TICK_COLOR, fontSize: 10, fontFamily: "var(--font-mono)" }}
-                      axisLine={{ stroke: CHART_GRID_COLOR }}
-                      tickLine={{ stroke: CHART_GRID_COLOR }}
-                    />
-                    <Tooltip
-                      cursor={{ stroke: "oklch(0.78 0.14 195 / 35%)", strokeWidth: 1 }}
-                      content={(props) => (
-                        <DistributionTooltip
-                          active={props.active}
-                          payload={props.payload}
-                          label={props.label}
-                          percentileMarkers={distributionChart.percentileMarkers}
-                        />
-                      )}
-                    />
-                    {distributionChart.percentileMarkers.map((marker) => {
-                      if (marker.percentiles.p50 <= 0) return null;
-                      return (
-                        <ReferenceLine
-                          key={`${marker.runId}-p50`}
-                          x={marker.percentiles.p50}
-                          stroke={marker.color}
-                          strokeDasharray="4 4"
-                          strokeOpacity={0.75}
-                        />
-                      );
-                    })}
-                    {visibleSummaryRuns.map((run) => (
-                      <Area
-                        key={run.runId}
-                        type="monotone"
-                        dataKey={run.runName}
-                        stroke={run.color}
-                        fill={run.color}
-                        fillOpacity={0.15}
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 4, strokeWidth: 0 }}
-                        animationDuration={600}
-                        animationEasing="ease-out"
+            <div className="min-h-[320px] w-full rounded-lg border border-border/40 bg-surface-elevated/30 p-2">
+              <ResponsiveContainer width="100%" height={340}>
+                <AreaChart data={distributionChart.data} margin={{ top: 8, right: 12, left: 0, bottom: 20 }}>
+                  <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="latencyMs"
+                    type="number"
+                    domain={[distributionChart.range.minMs, distributionChart.range.maxMs]}
+                    ticks={distributionChart.axisTicks}
+                    tick={{ fontSize: 10, fill: CHART_TICK_COLOR, fontFamily: "var(--font-mono)" }}
+                    tickFormatter={(value) => formatAxisTick(Number(value))}
+                    axisLine={{ stroke: CHART_GRID_COLOR }}
+                    tickLine={{ stroke: CHART_GRID_COLOR }}
+                  />
+                  <YAxis
+                    allowDecimals
+                    domain={[0, 100]}
+                    tickFormatter={(value) => formatDistributionAxisValue(Number(value))}
+                    tick={{ fill: CHART_TICK_COLOR, fontSize: 10, fontFamily: "var(--font-mono)" }}
+                    axisLine={{ stroke: CHART_GRID_COLOR }}
+                    tickLine={{ stroke: CHART_GRID_COLOR }}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: "oklch(0.78 0.14 195 / 35%)", strokeWidth: 1 }}
+                    content={(props) => (
+                      <DistributionTooltip
+                        active={props.active}
+                        payload={props.payload}
+                        label={props.label}
+                        percentileMarkers={distributionChart.percentileMarkers}
                       />
-                    ))}
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                {distributionChart.percentileMarkers.map((marker) => (
-                  <div key={marker.runId} className="text-xs text-muted-foreground">
-                    <span className="font-medium" style={{ color: marker.color }}>
-                      {marker.runName}
-                    </span>
-                    {": p50 "}
-                    <Metric className="text-xs">{marker.percentiles.p50.toFixed(1)}</Metric>
-                    {" ms · p75 "}
-                    <Metric className="text-xs">{marker.percentiles.p75.toFixed(1)}</Metric>
-                    {" ms · p95 "}
-                    <Metric className="text-xs">{marker.percentiles.p95.toFixed(1)}</Metric>
-                    {" ms · p99 "}
-                    <Metric className="text-xs">{marker.percentiles.p99.toFixed(1)}</Metric>
-                    {" ms"}
-                  </div>
-                ))}
-              </div>
+                    )}
+                  />
+                  {distributionChart.percentileMarkers.map((marker) => {
+                    if (marker.percentiles.p50 <= 0) return null;
+                    return (
+                      <ReferenceLine
+                        key={`${marker.runId}-p50`}
+                        x={marker.percentiles.p50}
+                        stroke={marker.color}
+                        strokeDasharray="4 4"
+                        strokeOpacity={0.75}
+                      />
+                    );
+                  })}
+                  {visibleSummaryRuns.map((run) => (
+                    <Area
+                      key={run.runId}
+                      type="monotone"
+                      dataKey={run.runName}
+                      stroke={run.color}
+                      fill={run.color}
+                      fillOpacity={0.15}
+                      strokeWidth={2}
+                      dot={false}
+                      activeDot={{ r: 4, strokeWidth: 0 }}
+                      animationDuration={600}
+                      animationEasing="ease-out"
+                    />
+                  ))}
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           )}
         </CardContent>

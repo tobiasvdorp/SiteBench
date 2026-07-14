@@ -5,15 +5,12 @@ const CHART_RANGE_MIN_KEY = "sitebench.comparison.chartRangeMinMs";
 const CHART_RANGE_MAX_KEY = "sitebench.comparison.chartRangeMaxMs";
 const CHART_VALUE_MODE_KEY = "sitebench.comparison.chartValueMode";
 const CHART_RESOURCE_FILTER_KEY = "sitebench.comparison.chartResourceFilter";
-const SUMMARY_VIEW_MODE_KEY = "sitebench.comparison.summaryViewMode";
 const SELECTED_RUN_IDS_KEY = "sitebench.comparison.selectedRunIds";
 const BASELINE_KEY_PREFIX = "sitebench.comparison.baseline.";
 
 export type ChartRangeMode = "auto" | "custom";
 export type ChartValueMode = "count" | "percent";
 export type ChartResourceFilter = "all" | "assets" | "page" | "css" | "js" | "font" | "image" | "other";
-export type SummaryViewMode = "table" | "distribution";
-
 function readJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -121,14 +118,6 @@ export function getStoredChartResourceFilter(): ChartResourceFilter {
 
 export function setStoredChartResourceFilter(filter: ChartResourceFilter) {
   localStorage.setItem(CHART_RESOURCE_FILTER_KEY, filter);
-}
-
-export function getStoredSummaryViewMode(): SummaryViewMode {
-  return localStorage.getItem(SUMMARY_VIEW_MODE_KEY) === "distribution" ? "distribution" : "table";
-}
-
-export function setStoredSummaryViewMode(mode: SummaryViewMode) {
-  localStorage.setItem(SUMMARY_VIEW_MODE_KEY, mode);
 }
 
 export function getStoredSelectedRunIds(): string[] {
