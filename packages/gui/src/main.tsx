@@ -27,6 +27,7 @@ import { RunLauncher } from "./components/RunLauncher";
 import { RunSelectionBar } from "./components/RunSelectionBar";
 import { TemplateForm } from "./components/TemplateForm";
 import { getStoredBaseline, getStoredSelectedRunIds, setStoredBaseline, setStoredSelectedRunIds } from "./lib/comparison-preferences";
+import { resolveBaselineRunId } from "./lib/comparison-utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -218,9 +219,9 @@ function App() {
     if (!firstRun) return;
 
     const origin = firstRun.siteOrigin;
-    const storedBaseline = getStoredBaseline(origin);
-    const baselineId = storedBaseline && runIds.includes(storedBaseline) ? storedBaseline : null;
-    if (baselineId) setBaselineRunId(baselineId);
+    const baselineId = resolveBaselineRunId(runIds, getStoredBaseline(origin) ?? baselineRunId);
+    setBaselineRunId(baselineId);
+    if (baselineId) setStoredBaseline(origin, baselineId);
 
     try {
       const result = await compare(
@@ -236,7 +237,7 @@ function App() {
     } catch (err) {
       setError(formatApiError(err));
     }
-  }, [runs]);
+  }, [runs, baselineRunId]);
 
   useEffect(() => {
     if (runs.length === 0) return;
@@ -256,13 +257,18 @@ function App() {
   }, [runs, selectedRunIds, tab, comparison, restoreComparison]);
 
   useEffect(() => {
-    if (!siteOrigin) return;
-    const stored = getStoredBaseline(siteOrigin);
-    if (!stored) return;
-    if (selectedRunIds.includes(stored) || runs.some((run) => run.id === stored)) {
-      setBaselineRunId(stored);
+    if (selectedRunIds.length === 0) {
+      if (baselineRunId !== null) setBaselineRunId(null);
+      return;
     }
-  }, [siteOrigin, selectedRunIds, runs, tab]);
+
+    const stored = siteOrigin ? getStoredBaseline(siteOrigin) : null;
+    const nextBaseline = resolveBaselineRunId(selectedRunIds, baselineRunId ?? stored);
+    if (!nextBaseline || nextBaseline === baselineRunId) return;
+
+    setBaselineRunId(nextBaseline);
+    if (siteOrigin) setStoredBaseline(siteOrigin, nextBaseline);
+  }, [selectedRunIds, siteOrigin, baselineRunId]);
 
   const handleSaveTemplate = async (input: TemplateInput, id?: string) => {
     setError(null);
@@ -320,21 +326,25 @@ function App() {
     setRecentRequests([]);
   };
 
-  const handleBaselineChange = (runId: string | null) => {
+  const handleBaselineChange = (runId: string) => {
     setBaselineRunId(runId);
     if (siteOrigin) setStoredBaseline(siteOrigin, runId);
   };
 
   const handleCompare = async () => {
     if (!siteOrigin || selectedRunIds.length === 0) return;
-    if (baselineRunId) setStoredBaseline(siteOrigin, baselineRunId);
+    const effectiveBaseline = resolveBaselineRunId(selectedRunIds, baselineRunId);
+    if (!effectiveBaseline) return;
+
+    setBaselineRunId(effectiveBaseline);
+    setStoredBaseline(siteOrigin, effectiveBaseline);
     try {
       const result = await compare(
         siteOrigin,
         selectedRunIds.map((runId) => ({
           runId,
           visible: true,
-          isBaseline: runId === baselineRunId,
+          isBaseline: runId === effectiveBaseline,
           color: undefined,
         })),
       );
@@ -347,7 +357,6 @@ function App() {
 
   const handleRemoveFromSelection = (runId: string) => {
     setSelectedRunIds((current) => current.filter((id) => id !== runId));
-    if (baselineRunId === runId) handleBaselineChange(null);
   };
 
   const scrollToRunLauncher = () => {
@@ -408,7 +417,6 @@ function App() {
               runs={runs}
               selectedRunIds={selectedRunIds}
               baselineRunId={baselineRunId}
-              onBaselineChange={handleBaselineChange}
               onRemoveRun={handleRemoveFromSelection}
               onCompare={() => void handleCompare()}
             />
@@ -421,7 +429,6 @@ function App() {
               runs={runs}
               selectedRunIds={selectedRunIds}
               baselineRunId={baselineRunId}
-              onBaselineChange={handleBaselineChange}
               onRemoveRun={handleRemoveFromSelection}
               onCompare={() => void handleCompare()}
               compact
@@ -440,7 +447,7 @@ function App() {
           )}
 
           {comparison ? (
-            <ComparisonView comparison={comparison} />
+            <ComparisonView comparison={comparison} onBaselineChange={handleBaselineChange} />
           ) : selectedRunIds.length > 0 ? (
             <Card>
               <CardContent className="py-8">

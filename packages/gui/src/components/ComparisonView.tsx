@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -80,6 +80,7 @@ import {
   formatChartTooltipValue,
   formatDistributionAxisValue,
   formatSummaryDelta,
+  resolveBaselineRunId,
   resolveEffectiveChartRange,
   resolveHistogramForFilter,
   withBaseline,
@@ -87,6 +88,7 @@ import {
 
 type Props = {
   comparison: ComparisonResult;
+  onBaselineChange?: (runId: string) => void;
 };
 
 type ChartRow = {
@@ -222,9 +224,10 @@ function LatencyTooltip({
 }
 
 function resolveInitialBaseline(comparison: ComparisonResult): string | null {
+  const runIds = comparison.runs.map((run) => run.runId);
   const stored = getStoredBaseline(comparison.siteOrigin);
-  if (stored && comparison.runs.some((run) => run.runId === stored)) return stored;
-  return comparison.runs.find((run) => run.isBaseline)?.runId ?? null;
+  const fromComparison = comparison.runs.find((run) => run.isBaseline)?.runId ?? null;
+  return resolveBaselineRunId(runIds, stored ?? fromComparison);
 }
 
 function resolveInitialColors(comparison: ComparisonResult): Record<string, string> {
@@ -253,7 +256,7 @@ function DeltaValue({ delta, valueMode }: { delta: number; valueMode: ChartValue
   );
 }
 
-export function ComparisonView({ comparison }: Props) {
+export function ComparisonView({ comparison, onBaselineChange }: Props) {
   const [runColors, setRunColors] = useState<Record<string, string>>(() => resolveInitialColors(comparison));
   const [visible, setVisible] = useState<Record<string, boolean>>(() => resolveInitialVisibility(comparison));
   const [baselineRunId, setBaselineRunId] = useState<string | null>(() => resolveInitialBaseline(comparison));
@@ -262,6 +265,16 @@ export function ComparisonView({ comparison }: Props) {
   const [resourceFilter, setResourceFilter] = useState<ChartResourceFilter>(() => getStoredChartResourceFilter());
   const [customMinMs, setCustomMinMs] = useState(() => getStoredChartRangeMinMs() ?? 0);
   const [customMaxMs, setCustomMaxMs] = useState(() => getStoredChartRangeMaxMs() ?? HISTOGRAM_MAX_MS);
+
+  useEffect(() => {
+    const runIds = comparison.runs.map((run) => run.runId);
+    if (runIds.length === 0) return;
+    const next = resolveBaselineRunId(runIds, baselineRunId);
+    if (!next || next === baselineRunId) return;
+    setBaselineRunId(next);
+    setStoredBaseline(comparison.siteOrigin, next);
+    onBaselineChange?.(next);
+  }, [comparison.runs, comparison.siteOrigin, baselineRunId, onBaselineChange]);
 
   const runs = useMemo(
     () =>
@@ -353,9 +366,11 @@ export function ComparisonView({ comparison }: Props) {
     setStoredRunColor(runId, color);
   };
 
-  const setBaseline = (runId: string | null) => {
+  const setBaseline = (runId: string) => {
+    if (runId === baselineRunId) return;
     setBaselineRunId(runId);
     setStoredBaseline(comparison.siteOrigin, runId);
+    onBaselineChange?.(runId);
   };
 
   const setChartRangeMode = (mode: ChartRangeMode) => {
@@ -462,21 +477,26 @@ export function ComparisonView({ comparison }: Props) {
                     {run.runName}
                   </Label>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className={cn("h-7 px-2 text-xs", {
-                    "text-warning": run.isBaseline,
-                    "text-muted-foreground": !run.isBaseline,
-                  })}
-                  onClick={() => setBaseline(run.isBaseline ? null : run.runId)}
-                  aria-pressed={run.isBaseline}
-                  title={run.isBaseline ? "Clear baseline" : "Set as baseline"}
-                >
-                  <Star className={cn("size-3.5", { "fill-current": run.isBaseline })} />
-                  {run.isBaseline ? "baseline" : "set baseline"}
-                </Button>
+                {!run.isBaseline && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground"
+                    onClick={() => setBaseline(run.runId)}
+                    aria-pressed={false}
+                    title="Set as baseline"
+                  >
+                    <Star className="size-3.5" />
+                    set baseline
+                  </Button>
+                )}
+                {run.isBaseline && (
+                  <span className="inline-flex items-center gap-1 px-2 text-xs text-warning" title="Current baseline">
+                    <Star className="size-3.5 fill-current" />
+                    baseline
+                  </span>
+                )}
               </div>
             ))}
           </div>

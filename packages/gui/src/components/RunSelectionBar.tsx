@@ -1,21 +1,12 @@
 import { GitCompareArrows, Star, X } from "lucide-react";
 import type { Run } from "@sitebench/core";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type RunSelectionBarProps = {
   runs: Run[];
   selectedRunIds: string[];
   baselineRunId: string | null;
-  onBaselineChange: (runId: string | null) => void;
   onRemoveRun: (runId: string) => void;
   onCompare: () => void;
   compact?: boolean;
@@ -25,7 +16,6 @@ function RunSelectionBar({
   runs,
   selectedRunIds,
   baselineRunId,
-  onBaselineChange,
   onRemoveRun,
   onCompare,
   compact = false,
@@ -77,36 +67,10 @@ function RunSelectionBar({
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <div className="space-y-1.5 sm:w-48">
-          <Label htmlFor="baseline-run" className="text-xs text-muted-foreground">
-            Baseline
-          </Label>
-          <Select
-            value={baselineRunId ?? "none"}
-            onValueChange={(value) => onBaselineChange(value === "none" ? null : value)}
-          >
-            <SelectTrigger id="baseline-run" size="sm">
-              <SelectValue placeholder="None" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">None</SelectItem>
-              {selectedRunIds.map((id) => {
-                const run = runs.find((r) => r.id === id);
-                return (
-                  <SelectItem key={id} value={id}>
-                    {run?.name ?? id}
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button className="gap-2 glow-accent" onClick={onCompare}>
-          <GitCompareArrows className="size-4" />
-          Compare
-        </Button>
-      </div>
+      <Button className="gap-2 glow-accent sm:self-end" onClick={onCompare}>
+        <GitCompareArrows className="size-4" />
+        Compare
+      </Button>
     </div>
   );
 }

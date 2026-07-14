@@ -46,6 +46,12 @@ export function formatAxisTick(minMs: number): string {
   return `${minMs}ms`;
 }
 
+export function resolveBaselineRunId(runIds: string[], preferredRunId: string | null = null): string | null {
+  if (runIds.length === 0) return null;
+  if (preferredRunId && runIds.includes(preferredRunId)) return preferredRunId;
+  return runIds[0] ?? null;
+}
+
 export function computeBaselineDeltas(
   baseline: ComparisonRunSeries["percentiles"],
   target: ComparisonRunSeries["percentiles"],
@@ -87,13 +93,17 @@ export function buildSummaryRuns(
     summaryDeltas: null as ComparisonRunSeries["deltas"],
   }));
 
-  const baseline = summaryRuns.find((run) => run.runId === baselineRunId);
+  const effectiveBaselineRunId = resolveBaselineRunId(
+    summaryRuns.map((run) => run.runId),
+    baselineRunId,
+  );
+  const baseline = summaryRuns.find((run) => run.runId === effectiveBaselineRunId);
   if (!baseline) return summaryRuns;
 
   return summaryRuns.map((run) => ({
     ...run,
     summaryDeltas:
-      run.runId === baselineRunId
+      run.runId === effectiveBaselineRunId
         ? null
         : computeBaselineDeltas(baseline.summaryPercentiles, run.summaryPercentiles, valueMode),
   }));
@@ -109,16 +119,20 @@ export function withBaseline(
   baselineRunId: string | null,
   valueMode: ChartValueMode = "count",
 ): ComparisonRunSeries[] {
-  const baseline = runs.find((run) => run.runId === baselineRunId);
+  const effectiveBaselineRunId = resolveBaselineRunId(
+    runs.map((run) => run.runId),
+    baselineRunId,
+  );
+  const baseline = runs.find((run) => run.runId === effectiveBaselineRunId);
   if (!baseline) {
     return runs.map((run) => ({ ...run, isBaseline: false, deltas: null }));
   }
 
   return runs.map((run) => ({
     ...run,
-    isBaseline: run.runId === baselineRunId,
+    isBaseline: run.runId === effectiveBaselineRunId,
     deltas:
-      run.runId === baselineRunId
+      run.runId === effectiveBaselineRunId
         ? null
         : computeBaselineDeltas(baseline.percentiles, run.percentiles, valueMode),
   }));
