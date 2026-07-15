@@ -265,6 +265,30 @@ describe("ComparisonEngine", () => {
     expect(store.listReports()).toHaveLength(0);
   });
 
+  it("updates comparison reports", () => {
+    const store = createInMemoryStore();
+
+    const created = store.createReport({
+      name: "Before vs after",
+      siteOrigin: "https://example.com",
+      runIds: ["run_a", "run_b"],
+      baselineRunId: "run_a",
+      resourceFilter: "all",
+    });
+
+    const updated = store.updateReport(created.id, {
+      name: "Before vs after",
+      siteOrigin: "https://example.com",
+      runIds: ["run_a", "run_b", "run_c"],
+      baselineRunId: "run_a",
+      resourceFilter: "page",
+    });
+
+    expect(updated?.runIds).toEqual(["run_a", "run_b", "run_c"]);
+    expect(updated?.resourceFilter).toBe("page");
+    expect(store.getReport(created.id)?.runIds).toEqual(["run_a", "run_b", "run_c"]);
+  });
+
   it("handles single-run comparison", () => {
     const store = createInMemoryStore();
     const engine = new ComparisonEngine(store);

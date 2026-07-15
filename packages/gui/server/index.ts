@@ -257,6 +257,14 @@ export function createApiServer() {
         return;
       }
 
+      if (req.method === "PUT" && path.startsWith("/api/reports/")) {
+        const id = path.split("/").pop()!;
+        const body = await readBody(req);
+        const updated = bench.updateReport(id, reportInputFromBody(body));
+        sendJson(res, 200, updated);
+        return;
+      }
+
       if (req.method === "GET" && path.startsWith("/api/reports/")) {
         const id = path.split("/").pop()!;
         const report = bench.getReport(id);

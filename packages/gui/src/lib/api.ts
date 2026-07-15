@@ -98,6 +98,10 @@ export function createReport(input: ReportInput) {
   return request<Report>("/api/reports", { method: "POST", body: JSON.stringify(input) });
 }
 
+export function updateReport(id: string, input: ReportInput) {
+  return request<Report>(`/api/reports/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
 export function deleteReport(id: string) {
   return request<void>(`/api/reports/${id}`, { method: "DELETE" });
 }

@@ -412,6 +412,41 @@ export class DatabaseStore {
     };
   }
 
+  updateReport(id: string, input: ReportInput): Report | null {
+    const existing = this.getReport(id);
+    if (!existing) return null;
+
+    const now = nowIso();
+    const resourceFilter = REPORT_RESOURCE_FILTERS.includes(input.resourceFilter) ? input.resourceFilter : "all";
+
+    this.db
+      .prepare(
+        `UPDATE reports
+         SET name = ?, site_origin = ?, run_ids_json = ?, baseline_run_id = ?, resource_filter = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        input.name,
+        input.siteOrigin,
+        JSON.stringify(input.runIds),
+        input.baselineRunId,
+        resourceFilter,
+        now,
+        id,
+      );
+
+    return {
+      id,
+      name: input.name,
+      siteOrigin: input.siteOrigin,
+      runIds: input.runIds,
+      baselineRunId: input.baselineRunId,
+      resourceFilter,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+    };
+  }
+
   deleteReport(id: string): boolean {
     const result = this.db.prepare("DELETE FROM reports WHERE id = ?").run(id);
     return Number(result.changes) > 0;

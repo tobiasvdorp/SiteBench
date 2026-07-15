@@ -19,6 +19,7 @@ import {
   startRun,
   stopRun,
   subscribeProgress,
+  updateReport,
   updateTemplate,
 } from "./lib/api";
 import type { ComparisonResult, CrawlConfig, Report, RequestProgressItem, Run, Template, TemplateInput } from "@sitebench/core";
@@ -26,6 +27,7 @@ import { AppAlert, AppShell, type Tab } from "./components/app/AppShell";
 import { CompareReportsSidebar } from "./components/CompareReportsSidebar";
 import { CompareRunSelector } from "./components/CompareRunSelector";
 import { ComparisonView } from "./components/ComparisonView";
+import { ReportChangesBar } from "./components/ReportChangesBar";
 import { RunDetailSheet, type RunProgressState } from "./components/RunDetailSheet";
 import { RunHistory } from "./components/RunHistory";
 import { RunLauncher } from "./components/RunLauncher";
@@ -40,7 +42,7 @@ import {
   setStoredSelectedRunIds,
   type ChartResourceFilter,
 } from "./lib/comparison-preferences";
-import { resolveBaselineRunId } from "./lib/comparison-utils";
+import { resolveBaselineRunId, reportMatchesComparisonState } from "./lib/comparison-utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -236,26 +238,15 @@ function App() {
     if (selectedRunIds.length === 0) setComparison(null);
   }, [selectedRunIds]);
 
-  const reportSnapshot = useMemo(() => {
-    if (!activeReportId) return null;
-    const report = reports.find((entry) => entry.id === activeReportId);
-    if (!report) return null;
-    return {
-      runIds: report.runIds,
-      baselineRunId: report.baselineRunId,
-      resourceFilter: report.resourceFilter,
-    };
-  }, [activeReportId, reports]);
+  const activeReport = useMemo(
+    () => reports.find((entry) => entry.id === activeReportId) ?? null,
+    [reports, activeReportId],
+  );
 
-  useEffect(() => {
-    if (!reportSnapshot) return;
-    const matchesReport =
-      selectedRunIds.length === reportSnapshot.runIds.length
-      && selectedRunIds.every((runId) => reportSnapshot.runIds.includes(runId))
-      && baselineRunId === reportSnapshot.baselineRunId
-      && resourceFilter === reportSnapshot.resourceFilter;
-    if (!matchesReport) setActiveReportId(null);
-  }, [selectedRunIds, baselineRunId, resourceFilter, reportSnapshot]);
+  const reportIsDirty = useMemo(() => {
+    if (!activeReport) return false;
+    return !reportMatchesComparisonState(activeReport, selectedRunIds, baselineRunId, resourceFilter);
+  }, [activeReport, selectedRunIds, baselineRunId, resourceFilter]);
 
   const refreshComparison = useCallback(async (runIds: string[], effectiveBaseline: string | null) => {
     if (runIds.length === 0 || !effectiveBaseline) {
@@ -415,6 +406,30 @@ function App() {
     }
   };
 
+  const handleUpdateReport = async () => {
+    if (!activeReport || !siteOrigin || selectedRunIds.length === 0 || !baselineRunId) return;
+
+    setError(null);
+    try {
+      await updateReport(activeReport.id, {
+        name: activeReport.name,
+        siteOrigin,
+        runIds: selectedRunIds,
+        baselineRunId,
+        resourceFilter,
+      });
+      await refreshReports(siteOrigin || undefined);
+      setNotice(`Report "${activeReport.name}" updated.`);
+    } catch (err) {
+      setError(formatApiError(err));
+    }
+  };
+
+  const handleDiscardReportChanges = () => {
+    if (!activeReport) return;
+    handleLoadReport(activeReport);
+  };
+
   const handleDeleteReport = async (reportId: string) => {
     setError(null);
     try {
@@ -499,7 +514,7 @@ function App() {
             <CompareReportsSidebar
               reports={reports}
               activeReportId={activeReportId}
-              canSave={selectedRunIds.length > 0 && baselineRunId !== null}
+              canSave={!activeReportId && selectedRunIds.length > 0 && baselineRunId !== null}
               onSelectReport={handleLoadReport}
               onSaveReport={handleSaveReport}
               onDeleteReport={handleDeleteReport}
@@ -516,6 +531,14 @@ function App() {
                 onBaselineChange={handleBaselineChange}
                 onResourceFilterChange={handleResourceFilterChange}
               />
+
+              {reportIsDirty && activeReport && (
+                <ReportChangesBar
+                  reportName={activeReport.name}
+                  onSave={handleUpdateReport}
+                  onDiscard={handleDiscardReportChanges}
+                />
+              )}
 
               {comparison ? (
                 <ComparisonView

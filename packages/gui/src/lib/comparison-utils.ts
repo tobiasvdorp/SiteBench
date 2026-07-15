@@ -1,4 +1,4 @@
-import type { ComparisonRunSeries, HistogramBucket, RequestRecord, ResourceType } from "@sitebench/core";
+import type { ComparisonRunSeries, HistogramBucket, Report, RequestRecord, ResourceType } from "@sitebench/core";
 import {
   axisTickIntervalMs,
   bucketIndicesInRange,
@@ -31,6 +31,19 @@ export const CHART_RESOURCE_FILTER_OPTIONS: { value: ChartResourceFilter; label:
 
 export function chartResourceFilterLabel(filter: ChartResourceFilter): string {
   return CHART_RESOURCE_FILTER_OPTIONS.find((option) => option.value === filter)?.label ?? "All requests";
+}
+
+export function reportMatchesComparisonState(
+  report: Report,
+  runIds: string[],
+  baselineRunId: string | null,
+  resourceFilter: ChartResourceFilter,
+) {
+  if (runIds.length !== report.runIds.length) return false;
+  if (!runIds.every((runId) => report.runIds.includes(runId))) return false;
+  if (baselineRunId !== report.baselineRunId) return false;
+  if (resourceFilter !== report.resourceFilter) return false;
+  return true;
 }
 
 export function timelineResourceFilterDescription(filter: ChartResourceFilter): string {

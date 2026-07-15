@@ -96,6 +96,14 @@ export class SiteBench {
     return this.store.createReport(input);
   }
 
+  updateReport(id: string, input: ReportInput) {
+    const errors = validateReportInput(input);
+    if (errors.length > 0) throw new ValidationFailure(errors);
+    const updated = this.store.updateReport(id, input);
+    if (!updated) throw new Error("Report not found");
+    return updated;
+  }
+
   deleteReport(id: string) {
     return this.store.deleteReport(id);
   }
