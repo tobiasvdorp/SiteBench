@@ -20,13 +20,22 @@ import {
 } from "./lib/api";
 import type { ComparisonResult, CrawlConfig, RequestProgressItem, Run, Template, TemplateInput } from "@sitebench/core";
 import { AppAlert, AppShell, type Tab } from "./components/app/AppShell";
+import { CompareRunSelector } from "./components/CompareRunSelector";
 import { ComparisonView } from "./components/ComparisonView";
 import { RunDetailSheet, type RunProgressState } from "./components/RunDetailSheet";
 import { RunHistory } from "./components/RunHistory";
 import { RunLauncher } from "./components/RunLauncher";
 import { RunSelectionBar } from "./components/RunSelectionBar";
 import { TemplateForm } from "./components/TemplateForm";
-import { getStoredBaseline, getStoredSelectedRunIds, setStoredBaseline, setStoredSelectedRunIds } from "./lib/comparison-preferences";
+import {
+  getStoredBaseline,
+  getStoredChartResourceFilter,
+  getStoredSelectedRunIds,
+  setStoredBaseline,
+  setStoredChartResourceFilter,
+  setStoredSelectedRunIds,
+  type ChartResourceFilter,
+} from "./lib/comparison-preferences";
 import { resolveBaselineRunId } from "./lib/comparison-utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -76,6 +85,7 @@ function App() {
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>(() => getStoredSelectedRunIds());
   const [baselineRunId, setBaselineRunId] = useState<string | null>(null);
+  const [resourceFilter, setResourceFilter] = useState<ChartResourceFilter>(() => getStoredChartResourceFilter());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [stoppingRun, setStoppingRun] = useState(false);
@@ -212,24 +222,22 @@ function App() {
     if (selectedRunIds.length === 0) setComparison(null);
   }, [selectedRunIds]);
 
-  const restoreComparison = useCallback(async (runIds: string[]) => {
-    if (runIds.length === 0) return;
+  const refreshComparison = useCallback(async (runIds: string[], effectiveBaseline: string | null) => {
+    if (runIds.length === 0 || !effectiveBaseline) {
+      setComparison(null);
+      return;
+    }
 
     const firstRun = runs.find((run) => runIds.includes(run.id));
     if (!firstRun) return;
 
-    const origin = firstRun.siteOrigin;
-    const baselineId = resolveBaselineRunId(runIds, getStoredBaseline(origin) ?? baselineRunId);
-    setBaselineRunId(baselineId);
-    if (baselineId) setStoredBaseline(origin, baselineId);
-
     try {
       const result = await compare(
-        origin,
+        firstRun.siteOrigin,
         runIds.map((runId) => ({
           runId,
           visible: true,
-          isBaseline: runId === baselineId,
+          isBaseline: runId === effectiveBaseline,
           color: undefined,
         })),
       );
@@ -237,7 +245,7 @@ function App() {
     } catch (err) {
       setError(formatApiError(err));
     }
-  }, [runs, baselineRunId]);
+  }, [runs]);
 
   useEffect(() => {
     if (runs.length === 0) return;
@@ -252,23 +260,25 @@ function App() {
       return;
     }
 
-    if (tab !== "compare" || comparison || validIds.length === 0) return;
-    void restoreComparison(validIds);
-  }, [runs, selectedRunIds, tab, comparison, restoreComparison]);
-
-  useEffect(() => {
-    if (selectedRunIds.length === 0) {
+    if (validIds.length === 0) {
       if (baselineRunId !== null) setBaselineRunId(null);
+      setComparison(null);
       return;
     }
 
     const stored = siteOrigin ? getStoredBaseline(siteOrigin) : null;
-    const nextBaseline = resolveBaselineRunId(selectedRunIds, baselineRunId ?? stored);
-    if (!nextBaseline || nextBaseline === baselineRunId) return;
+    const effectiveBaseline = resolveBaselineRunId(validIds, baselineRunId ?? stored);
+    if (!effectiveBaseline) return;
 
-    setBaselineRunId(nextBaseline);
-    if (siteOrigin) setStoredBaseline(siteOrigin, nextBaseline);
-  }, [selectedRunIds, siteOrigin, baselineRunId]);
+    if (effectiveBaseline !== baselineRunId) {
+      setBaselineRunId(effectiveBaseline);
+      if (siteOrigin) setStoredBaseline(siteOrigin, effectiveBaseline);
+      return;
+    }
+
+    if (tab !== "compare") return;
+    void refreshComparison(validIds, effectiveBaseline);
+  }, [runs, selectedRunIds, baselineRunId, siteOrigin, tab, refreshComparison]);
 
   const handleSaveTemplate = async (input: TemplateInput, id?: string) => {
     setError(null);
@@ -331,28 +341,13 @@ function App() {
     if (siteOrigin) setStoredBaseline(siteOrigin, runId);
   };
 
-  const handleCompare = async () => {
-    if (!siteOrigin || selectedRunIds.length === 0) return;
-    const effectiveBaseline = resolveBaselineRunId(selectedRunIds, baselineRunId);
-    if (!effectiveBaseline) return;
+  const handleResourceFilterChange = (filter: ChartResourceFilter) => {
+    setResourceFilter(filter);
+    setStoredChartResourceFilter(filter);
+  };
 
-    setBaselineRunId(effectiveBaseline);
-    setStoredBaseline(siteOrigin, effectiveBaseline);
-    try {
-      const result = await compare(
-        siteOrigin,
-        selectedRunIds.map((runId) => ({
-          runId,
-          visible: true,
-          isBaseline: runId === effectiveBaseline,
-          color: undefined,
-        })),
-      );
-      setComparison(result);
-      navigateToTab("compare");
-    } catch (err) {
-      setError(formatApiError(err));
-    }
+  const handleCompare = () => {
+    navigateToTab("compare");
   };
 
   const handleRemoveFromSelection = (runId: string) => {
@@ -424,46 +419,29 @@ function App() {
         </TabsContent>
 
         <TabsContent value="compare" className="mt-0 space-y-6">
-          {selectedRunIds.length > 0 ? (
-            <RunSelectionBar
-              runs={runs}
-              selectedRunIds={selectedRunIds}
+          <CompareRunSelector
+            runs={runs}
+            selectedRunIds={selectedRunIds}
+            baselineRunId={baselineRunId}
+            resourceFilter={resourceFilter}
+            isComparableRun={isComparableRun}
+            onSelectedRunIdsChange={setSelectedRunIds}
+            onBaselineChange={handleBaselineChange}
+            onResourceFilterChange={handleResourceFilterChange}
+          />
+
+          {comparison ? (
+            <ComparisonView
+              comparison={comparison}
               baselineRunId={baselineRunId}
-              onRemoveRun={handleRemoveFromSelection}
-              onCompare={() => void handleCompare()}
-              compact
+              resourceFilter={resourceFilter}
             />
-          ) : (
+          ) : selectedRunIds.length === 0 ? (
             <EmptyState
               icon={<GitCompareArrows className="size-8" />}
               title="No runs selected"
-              description="Select completed or stopped runs on the Runs tab, then compare their latency distributions."
-              action={
-                <Button variant="outline" onClick={() => navigateToTab("runs")}>
-                  Go to Runs
-                </Button>
-              }
+              description="Select completed or stopped runs above to compare their latency distributions."
             />
-          )}
-
-          {comparison ? (
-            <ComparisonView comparison={comparison} onBaselineChange={handleBaselineChange} />
-          ) : selectedRunIds.length > 0 ? (
-            <Card>
-              <CardContent className="py-8">
-                <EmptyState
-                  icon={<GitCompareArrows className="size-8" />}
-                  title="Ready to compare"
-                  description={`${selectedRunIds.length} run${selectedRunIds.length === 1 ? "" : "s"} selected. Click Compare to overlay latency distributions.`}
-                  action={
-                    <Button className="gap-2 glow-accent" onClick={() => void handleCompare()}>
-                      <GitCompareArrows className="size-4" />
-                      Compare selected
-                    </Button>
-                  }
-                />
-              </CardContent>
-            </Card>
           ) : null}
         </TabsContent>
 
