@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { Activity, GitCompareArrows, Layers, Play, X } from "lucide-react";
+import { Activity, GitCompareArrows, Play, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-type Tab = "runs" | "compare" | "templates";
+type Tab = "runs" | "compare";
 
 type AppShellProps = {
   tab: Tab;
@@ -16,7 +16,6 @@ type AppShellProps = {
 const NAV_ITEMS: { value: Tab; label: string; icon: typeof Activity }[] = [
   { value: "runs", label: "Runs", icon: Activity },
   { value: "compare", label: "Compare", icon: GitCompareArrows },
-  { value: "templates", label: "Templates", icon: Layers },
 ];
 
 function AppShell({ tab, onNavigate, onNewRun, children, alerts }: AppShellProps) {

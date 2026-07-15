@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Copy, GitCompareArrows, Layers, Plus, Trash2 } from "lucide-react";
+import { GitCompareArrows } from "lucide-react";
 import {
   compare,
   createReport,
@@ -20,9 +20,8 @@ import {
   stopRun,
   subscribeProgress,
   updateReport,
-  updateTemplate,
 } from "./lib/api";
-import type { ComparisonResult, CrawlConfig, Report, RequestProgressItem, Run, Template, TemplateInput } from "@sitebench/core";
+import type { ComparisonResult, CrawlConfig, Report, RequestProgressItem, Run, Template } from "@sitebench/core";
 import { AppAlert, AppShell, type Tab } from "./components/app/AppShell";
 import { CompareReportsSidebar } from "./components/CompareReportsSidebar";
 import { CompareRunSelector } from "./components/CompareRunSelector";
@@ -32,7 +31,7 @@ import { RunDetailSheet, type RunProgressState } from "./components/RunDetailShe
 import { RunHistory } from "./components/RunHistory";
 import { RunLauncher } from "./components/RunLauncher";
 import { RunSelectionBar } from "./components/RunSelectionBar";
-import { TemplateForm } from "./components/TemplateForm";
+import { TemplatesSidebar } from "./components/TemplatesSidebar";
 import {
   getStoredBaseline,
   getStoredChartResourceFilter,
@@ -45,23 +44,26 @@ import {
   type ChartResourceFilter,
 } from "./lib/comparison-preferences";
 import { resolveBaselineRunId, reportMatchesComparisonState } from "./lib/comparison-utils";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  defaultsToForm,
+  getStoredRunSettings,
+  hasStoredRunSettings,
+  setStoredRunSettings,
+  templateToForm,
+  type RunSettingsFormState,
+} from "./lib/run-settings-preferences";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
 import "./styles.css";
 
 const TAB_PATHS: Record<Tab, string> = {
   runs: "/runs",
   compare: "/compare",
-  templates: "/templates",
 };
 
 function getTabFromPath(pathname: string): Tab {
   if (pathname === "/compare") return "compare";
-  if (pathname === "/templates") return "templates";
   return "runs";
 }
 
@@ -82,10 +84,9 @@ function getTruncationMessage(run: Run) {
 
 function App() {
   const [tab, setTab] = useState<Tab>(() => getTabFromPath(window.location.pathname));
-  const [defaults, setDefaults] = useState<CrawlConfig | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [runSettings, setRunSettings] = useState<RunSettingsFormState>(() => getStoredRunSettings(null));
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
   const [progress, setProgress] = useState<RunProgressState | null>(null);
@@ -103,8 +104,9 @@ function App() {
   const runLauncherRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (window.location.pathname === "/") {
+    if (window.location.pathname === "/" || window.location.pathname === "/templates") {
       window.history.replaceState(null, "", TAB_PATHS.runs);
+      setTab("runs");
     }
 
     const handlePopState = () => setTab(getTabFromPath(window.location.pathname));
@@ -133,11 +135,16 @@ function App() {
 
   useEffect(() => {
     void (async () => {
-      setDefaults(await getDefaults());
+      const nextDefaults = await getDefaults();
+      if (!hasStoredRunSettings()) setRunSettings(defaultsToForm(nextDefaults));
       await refreshTemplates();
       await refreshRuns();
     })();
   }, [refreshTemplates, refreshRuns]);
+
+  useEffect(() => {
+    setStoredRunSettings(runSettings);
+  }, [runSettings]);
 
   useEffect(() => {
     if (activeRunId) return;
@@ -218,19 +225,16 @@ function App() {
     return () => clearInterval(interval);
   }, [activeRunId, detailRunId, refreshRuns]);
 
-  const selectedTemplate = useMemo(
-    () => templates.find((t) => t.id === selectedTemplateId) ?? null,
-    [templates, selectedTemplateId],
-  );
-
   const siteOrigin = useMemo(() => {
     const first = runs.find((r) => selectedRunIds.includes(r.id));
-    return (
-      first?.siteOrigin
-      ?? runs[0]?.siteOrigin
-      ?? (templates[0]?.startUrl ? new URL(templates[0].startUrl).origin : "")
-    );
-  }, [runs, selectedRunIds, templates]);
+    if (first?.siteOrigin) return first.siteOrigin;
+    if (runs[0]?.siteOrigin) return runs[0].siteOrigin;
+    try {
+      return runSettings.startUrl ? new URL(runSettings.startUrl).origin : "";
+    } catch {
+      return "";
+    }
+  }, [runs, selectedRunIds, runSettings.startUrl]);
 
   useEffect(() => {
     void refreshReports(siteOrigin || undefined);
@@ -309,30 +313,29 @@ function App() {
     void refreshComparison(validIds, effectiveBaseline);
   }, [runs, selectedRunIds, baselineRunId, siteOrigin, tab, refreshComparison]);
 
-  const handleSaveTemplate = async (input: TemplateInput, id?: string) => {
+  const handleSaveAsTemplate = async (name: string, config: CrawlConfig) => {
     setError(null);
     try {
-      if (id) await updateTemplate(id, input);
-      else await createTemplate(input);
+      await createTemplate({ name, ...config });
       await refreshTemplates();
+      setNotice(`Template "${name}" saved.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save template");
     }
   };
 
-  const handleEditTemplate = (templateId: string) => {
-    setSelectedTemplateId(templateId);
-    navigateToTab("templates");
+  const handleLoadTemplate = (template: Template) => {
+    setRunSettings(templateToForm(template));
+    setNotice(`Loaded template "${template.name}".`);
   };
 
-  const handleStartRun = async (runName: string, templateId: string, overrides?: Partial<CrawlConfig>) => {
+  const handleStartRun = async (runName: string, config: CrawlConfig) => {
     setError(null);
     setNotice(null);
     try {
       const run = await startRun({
         runName,
-        templateId,
-        overrides: overrides && Object.keys(overrides).length > 0 ? overrides : undefined,
+        overrides: config,
       });
       setActiveRunId(run.id);
       setDetailRunId(run.id);
@@ -471,16 +474,27 @@ function App() {
     <AppShell tab={tab} onNavigate={navigateToTab} onNewRun={scrollToRunLauncher} alerts={alerts}>
       <Tabs value={tab}>
         <TabsContent value="runs" className="mt-0 space-y-6">
-          <div ref={runLauncherRef} className="animate-fade-in-up stagger-1">
-            <RunLauncher
+          <div ref={runLauncherRef} className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+            <TemplatesSidebar
               templates={templates}
-              onStart={handleStartRun}
-              onEditTemplate={handleEditTemplate}
-              onCreateTemplate={() => {
-                setSelectedTemplateId(null);
-                navigateToTab("templates");
+              onLoad={handleLoadTemplate}
+              onDuplicate={async (templateId) => {
+                await duplicateTemplate(templateId);
+                await refreshTemplates();
+              }}
+              onDelete={async (templateId) => {
+                await deleteTemplate(templateId);
+                await refreshTemplates();
               }}
             />
+            <div className="animate-fade-in-up stagger-1">
+              <RunLauncher
+                settings={runSettings}
+                onSettingsChange={setRunSettings}
+                onStart={handleStartRun}
+                onSaveAsTemplate={handleSaveAsTemplate}
+              />
+            </div>
           </div>
 
           <div className="animate-fade-in-up stagger-2 space-y-4">
@@ -568,86 +582,6 @@ function App() {
           </div>
         </TabsContent>
 
-        <TabsContent value="templates" className="mt-0">
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-            <Card className="animate-fade-in-up stagger-1">
-              <SectionHeader
-                title="Templates"
-                description="Reusable crawl presets for future runs."
-                action={
-                  <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSelectedTemplateId(null)}>
-                    <Plus className="size-4" />
-                    New
-                  </Button>
-                }
-                className="p-5 pb-0"
-              />
-              <CardContent className="space-y-2 pt-4">
-                {templates.length === 0 ? (
-                  <EmptyState
-                    icon={<Layers className="size-8" />}
-                    title="No templates yet"
-                    description="Create a template to configure crawl settings."
-                  />
-                ) : (
-                  templates.map((template) => (
-                    <div
-                      key={template.id}
-                      className={cn(
-                        "flex items-center gap-1 rounded-lg border px-2 py-1.5 transition-all hover:border-primary/30 hover:bg-accent/30",
-                        {
-                          "border-primary/40 bg-primary/5 ring-1 ring-primary/20": selectedTemplateId === template.id,
-                        },
-                      )}
-                    >
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 px-1 py-0.5 text-left"
-                        onClick={() => setSelectedTemplateId(template.id)}
-                      >
-                        <div className="truncate font-medium leading-tight">{template.name}</div>
-                        <div className="truncate text-[0.65rem] text-muted-foreground/80">
-                          {template.rpsLimit} RPS
-                          {template.maxPages !== null && ` · ${template.maxPages} pages`}
-                          {template.timeLimitSeconds !== null && ` · ${template.timeLimitSeconds}s`}
-                        </div>
-                      </button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 shrink-0"
-                        aria-label={`Duplicate template ${template.name}`}
-                        onClick={async () => {
-                          await duplicateTemplate(template.id);
-                          await refreshTemplates();
-                        }}
-                      >
-                        <Copy className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        aria-label={`Delete template ${template.name}`}
-                        onClick={async () => {
-                          await deleteTemplate(template.id);
-                          if (selectedTemplateId === template.id) setSelectedTemplateId(null);
-                          await refreshTemplates();
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-
-            <div className="animate-fade-in-up stagger-2">
-              <TemplateForm defaults={defaults} template={selectedTemplate} onSave={handleSaveTemplate} />
-            </div>
-          </div>
-        </TabsContent>
       </Tabs>
 
       <RunDetailSheet
