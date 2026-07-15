@@ -7,6 +7,8 @@ import {
   CartesianGrid,
   ReferenceLine,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
@@ -66,11 +68,14 @@ import {
   type ChartResourceFilter,
   type ChartValueMode,
 } from "@/lib/comparison-preferences";
+import { getRunRequests } from "@/lib/api";
 import {
   bucketChartValue,
   bucketTotalCount,
   buildDistributionChartData,
   buildSummaryRuns,
+  buildTimelineChartMeta,
+  buildTimelineRunSeries,
   CHART_RESOURCE_FILTER_OPTIONS,
   chartResourceFilterLabel,
   formatAxisTick,
@@ -79,10 +84,13 @@ import {
   formatChartRangeLabel,
   formatChartTooltipValue,
   formatDistributionAxisValue,
+  formatElapsedAxisTick,
   formatSummaryDelta,
+  timelineResourceFilterDescription,
   resolveBaselineRunId,
   resolveEffectiveChartRange,
   resolveHistogramForFilter,
+  type TimelineRunSeries,
   withBaseline,
 } from "@/lib/comparison-utils";
 
@@ -171,6 +179,33 @@ type LatencyTooltipProps = {
 
 const CHART_TICK_COLOR = "oklch(0.6 0.03 220)";
 const CHART_GRID_COLOR = "oklch(0.55 0.04 220 / 15%)";
+
+type TimelineTooltipProps = {
+  active?: boolean;
+  payload?: readonly {
+    payload?: { elapsedMs?: number; responseMs?: number };
+  }[];
+  runName?: string;
+};
+
+function TimelineTooltip({ active, payload, runName }: TimelineTooltipProps) {
+  if (!active || !payload?.length) return null;
+
+  const point = payload[0]?.payload;
+  if (!point || point.elapsedMs === undefined || point.responseMs === undefined) return null;
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-popover px-3 py-2.5 text-popover-foreground shadow-lg">
+      {runName && <p className="mb-1 font-medium">{runName}</p>}
+      <p className="text-sm">
+        Elapsed: <Metric className="font-semibold">{formatElapsedAxisTick(point.elapsedMs)}</Metric>
+      </p>
+      <p className="text-sm">
+        Response: <Metric unit="ms" className="font-semibold">{point.responseMs.toFixed(1)}</Metric>
+      </p>
+    </div>
+  );
+}
 
 function LatencyTooltip({
   active,
@@ -265,6 +300,10 @@ export function ComparisonView({ comparison, onBaselineChange }: Props) {
   const [resourceFilter, setResourceFilter] = useState<ChartResourceFilter>(() => getStoredChartResourceFilter());
   const [customMinMs, setCustomMinMs] = useState(() => getStoredChartRangeMinMs() ?? 0);
   const [customMaxMs, setCustomMaxMs] = useState(() => getStoredChartRangeMaxMs() ?? HISTOGRAM_MAX_MS);
+  const [timelineByRunId, setTimelineByRunId] = useState<
+    Record<string, { durationMs: number; points: TimelineRunSeries["points"] }>
+  >({});
+  const [timelineLoading, setTimelineLoading] = useState(false);
 
   useEffect(() => {
     const runIds = comparison.runs.map((run) => run.runId);
@@ -308,6 +347,59 @@ export function ComparisonView({ comparison, onBaselineChange }: Props) {
   const distributionChart = useMemo(
     () => buildDistributionChartData(summaryRuns, visible, resourceFilter, chartRange),
     [summaryRuns, visible, resourceFilter, chartRange.minMs, chartRange.maxMs],
+  );
+
+  useEffect(() => {
+    const runIds = comparison.runs.map((run) => run.runId);
+    if (runIds.length === 0) {
+      setTimelineByRunId({});
+      return;
+    }
+
+    let cancelled = false;
+    setTimelineLoading(true);
+
+    void (async () => {
+      try {
+        const entries = await Promise.all(
+          comparison.runs.map(async (run) => {
+            const requests = await getRunRequests(run.runId);
+            const series = buildTimelineRunSeries(run, requests, resourceFilter);
+            return [run.runId, { durationMs: series.durationMs, points: series.points }] as const;
+          }),
+        );
+        if (!cancelled) setTimelineByRunId(Object.fromEntries(entries));
+      } finally {
+        if (!cancelled) setTimelineLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [comparison.runs, resourceFilter]);
+
+  const visibleTimelineRuns = useMemo(
+    () =>
+      runs
+        .filter((run) => visible[run.runId])
+        .map((run) => {
+          const timeline = timelineByRunId[run.runId];
+          return {
+            runId: run.runId,
+            runName: run.runName,
+            color: run.color,
+            durationMs: timeline?.durationMs ?? 0,
+            points: timeline?.points ?? [],
+          };
+        })
+        .filter((series) => series.points.length > 0),
+    [runs, visible, timelineByRunId],
+  );
+
+  const timelineChart = useMemo(
+    () => buildTimelineChartMeta(visibleTimelineRuns),
+    [visibleTimelineRuns],
   );
 
   const chartData = useMemo(() => {
@@ -846,6 +938,96 @@ export function ComparisonView({ comparison, onBaselineChange }: Props) {
               </ResponsiveContainer>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <SectionHeader
+            title="Response time timeline"
+            description={`Each point is one ${timelineResourceFilterDescription(resourceFilter)} plotted from the first matching request in each run. Compare how response times evolve across the active crawl period.`}
+          />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {timelineLoading ? (
+            <EmptyState
+              title="Loading timeline"
+              description="Fetching per-request data for the selected runs."
+              className="min-h-[280px] border-0 bg-transparent"
+            />
+          ) : visibleCount === 0 ? (
+            <EmptyState
+              title="All runs hidden"
+              description="Show at least one run to display the response time timeline."
+              action={
+                <Button variant="outline" size="sm" onClick={() => setAllVisible(true)}>
+                  Show all runs
+                </Button>
+              }
+              className="min-h-[280px] border-0 bg-transparent"
+            />
+          ) : visibleTimelineRuns.length === 0 ? (
+            <EmptyState
+              title="No timeline data"
+              description={`No ${chartResourceFilterLabel(resourceFilter).toLowerCase()} requests found for the visible runs.`}
+              className="min-h-[280px] border-0 bg-transparent"
+            />
+          ) : (
+            <div className="min-h-[320px] w-full rounded-lg border border-border/40 bg-surface-elevated/30 p-2">
+              <ResponsiveContainer width="100%" height={340}>
+                <ScatterChart margin={{ top: 8, right: 12, left: 0, bottom: 20 }}>
+                  <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" />
+                  <XAxis
+                    type="number"
+                    dataKey="elapsedMs"
+                    name="Elapsed"
+                    domain={[0, timelineChart.maxElapsedMs || "auto"]}
+                    ticks={timelineChart.axisTicks}
+                    tick={{ fontSize: 10, fill: CHART_TICK_COLOR, fontFamily: "var(--font-mono)" }}
+                    tickFormatter={(value) => formatElapsedAxisTick(Number(value))}
+                    axisLine={{ stroke: CHART_GRID_COLOR }}
+                    tickLine={{ stroke: CHART_GRID_COLOR }}
+                  />
+                  <YAxis
+                    type="number"
+                    dataKey="responseMs"
+                    name="Response"
+                    domain={[0, timelineChart.maxResponseMs || "auto"]}
+                    tick={{ fill: CHART_TICK_COLOR, fontSize: 10, fontFamily: "var(--font-mono)" }}
+                    tickFormatter={(value) => `${Math.round(Number(value))}ms`}
+                    axisLine={{ stroke: CHART_GRID_COLOR }}
+                    tickLine={{ stroke: CHART_GRID_COLOR }}
+                  />
+                  <Tooltip
+                    cursor={{ strokeDasharray: "3 3" }}
+                    content={(props) => (
+                      <TimelineTooltip
+                        active={props.active}
+                        payload={props.payload}
+                        runName={props.payload?.[0]?.name ? String(props.payload[0].name) : undefined}
+                      />
+                    )}
+                  />
+                  {visibleTimelineRuns.map((series) => (
+                    <Scatter
+                      key={series.runId}
+                      name={series.runName}
+                      data={series.points}
+                      fill={series.color}
+                      fillOpacity={0.45}
+                      line={false}
+                      animationDuration={600}
+                      animationEasing="ease-out"
+                    />
+                  ))}
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            X-axis shows elapsed time from each run&apos;s first matching request and auto-scales to the visible data.
+            Y-axis shows total response time per request. Large runs are downsampled for performance while preserving the overall trend.
+          </p>
         </CardContent>
       </Card>
     </div>

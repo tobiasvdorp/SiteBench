@@ -1,4 +1,4 @@
-import type { ComparisonRunSeries, HistogramBucket, ResourceType } from "@sitebench/core";
+import type { ComparisonRunSeries, HistogramBucket, RequestRecord, ResourceType } from "@sitebench/core";
 import {
   axisTickIntervalMs,
   bucketIndicesInRange,
@@ -31,6 +31,12 @@ export const CHART_RESOURCE_FILTER_OPTIONS: { value: ChartResourceFilter; label:
 
 export function chartResourceFilterLabel(filter: ChartResourceFilter): string {
   return CHART_RESOURCE_FILTER_OPTIONS.find((option) => option.value === filter)?.label ?? "All requests";
+}
+
+export function timelineResourceFilterDescription(filter: ChartResourceFilter): string {
+  if (filter === "all") return "request";
+  if (filter === "assets") return "asset request";
+  return `${chartResourceFilterLabel(filter).toLowerCase()} request`;
 }
 
 export function formatBucketLabel(bucket: HistogramBucket): string {
@@ -349,4 +355,125 @@ export function buildDistributionChartData(
 
 export function formatDistributionAxisValue(value: number): string {
   return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
+export type TimelinePoint = {
+  elapsedMs: number;
+  responseMs: number;
+};
+
+export type TimelineRunSeries = {
+  runId: string;
+  runName: string;
+  color: string;
+  durationMs: number;
+  points: TimelinePoint[];
+};
+
+const TIMELINE_MAX_POINTS = 4000;
+
+export function filterRequestsForChart(
+  requests: RequestRecord[],
+  resourceFilter: ChartResourceFilter,
+): RequestRecord[] {
+  if (resourceFilter === "all") return requests;
+  if (resourceFilter === "assets") {
+    return requests.filter((request) => ASSET_RESOURCE_TYPES.includes(request.resourceType));
+  }
+  return requests.filter((request) => request.resourceType === resourceFilter);
+}
+
+export function downsampleTimelinePoints(points: TimelinePoint[], maxPoints = TIMELINE_MAX_POINTS): TimelinePoint[] {
+  if (points.length <= maxPoints) return points;
+  const step = Math.ceil(points.length / maxPoints);
+  return points.filter((_, index) => index % step === 0);
+}
+
+export function buildTimelineRunSeries(
+  run: ComparisonRunSeries,
+  requests: RequestRecord[],
+  resourceFilter: ChartResourceFilter,
+): TimelineRunSeries {
+  const filtered = filterRequestsForChart(requests, resourceFilter);
+  if (filtered.length === 0) {
+    return {
+      runId: run.runId,
+      runName: run.runName,
+      color: run.color,
+      durationMs: 0,
+      points: [],
+    };
+  }
+
+  const firstRequestMs = new Date(filtered[0].createdAt).getTime();
+  const points = downsampleTimelinePoints(
+    filtered.map((request) => ({
+      elapsedMs: Math.max(0, new Date(request.createdAt).getTime() - firstRequestMs),
+      responseMs: request.timings.totalMs,
+    })),
+  );
+  const durationMs = points.reduce((max, point) => Math.max(max, point.elapsedMs), 0);
+
+  return {
+    runId: run.runId,
+    runName: run.runName,
+    color: run.color,
+    durationMs,
+    points,
+  };
+}
+
+export function formatElapsedAxisTick(elapsedMs: number): string {
+  if (elapsedMs === 0) return "0";
+
+  const totalSeconds = Math.round(elapsedMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes > 0 && seconds === 0) return `${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  if (totalSeconds > 0) return `${totalSeconds}s`;
+  return `${Math.round(elapsedMs)}ms`;
+}
+
+export function resolveTimelineTickInterval(maxElapsedMs: number): number {
+  if (maxElapsedMs <= 10_000) return axisTickIntervalMs(maxElapsedMs);
+  if (maxElapsedMs <= 60_000) return 10_000;
+  if (maxElapsedMs <= 300_000) return 30_000;
+  if (maxElapsedMs <= 1_800_000) return 60_000;
+  return 300_000;
+}
+
+export function resolveTimelineAxisTicks(maxElapsedMs: number): number[] {
+  if (maxElapsedMs <= 0) return [0];
+
+  const tickIntervalMs = resolveTimelineTickInterval(maxElapsedMs);
+  const roundedMaxMs = Math.max(tickIntervalMs, Math.ceil(maxElapsedMs / tickIntervalMs) * tickIntervalMs);
+  const ticks: number[] = [];
+
+  for (let elapsedMs = 0; elapsedMs <= roundedMaxMs; elapsedMs += tickIntervalMs) {
+    ticks.push(elapsedMs);
+  }
+
+  return ticks;
+}
+
+export function buildTimelineChartMeta(series: TimelineRunSeries[]) {
+  const pointElapsedMs = series.flatMap((entry) => entry.points.map((point) => point.elapsedMs));
+  const maxElapsedMs = pointElapsedMs.length > 0 ? Math.max(...pointElapsedMs) : 0;
+  const tickIntervalMs = resolveTimelineTickInterval(maxElapsedMs);
+  const paddedMaxElapsedMs = Math.max(
+    tickIntervalMs,
+    Math.ceil((maxElapsedMs * 1.02) / tickIntervalMs) * tickIntervalMs,
+  );
+  const maxResponseMs = series.reduce(
+    (max, entry) => Math.max(max, ...entry.points.map((point) => point.responseMs), 0),
+    0,
+  );
+
+  return {
+    maxElapsedMs: paddedMaxElapsedMs,
+    maxResponseMs: Math.ceil(maxResponseMs * 1.08),
+    axisTicks: resolveTimelineAxisTicks(paddedMaxElapsedMs),
+  };
 }

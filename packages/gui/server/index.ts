@@ -149,7 +149,8 @@ export function createApiServer() {
 
       if (req.method === "GET" && path.startsWith("/api/runs/") && path.endsWith("/requests")) {
         const runId = path.split("/")[3];
-        const limit = Number(url.searchParams.get("limit") ?? 150);
+        const limitParam = url.searchParams.get("limit");
+        const limit = limitParam !== null ? Number(limitParam) : undefined;
         const resourceType = url.searchParams.get("resourceType") ?? undefined;
         sendJson(
           res,
