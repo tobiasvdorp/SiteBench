@@ -191,6 +191,17 @@
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
   }
+
+  button:not(:disabled):not([aria-disabled="true"]),
+  [role="button"]:not([aria-disabled="true"]),
+  label[for],
+  [role="checkbox"]:not([aria-disabled="true"]),
+  [role="radio"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="option"]:not([data-disabled]):not([aria-disabled="true"]),
+  a[href] {
+    cursor: pointer;
+  }
 }
 
 @layer utilities {

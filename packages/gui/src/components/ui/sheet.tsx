@@ -49,7 +49,7 @@ function SheetContent({ side = "right", className, children, ...props }: SheetCo
       <SheetOverlay />
       <SheetPrimitive.Content className={cn(sheetVariants({ side }), className)} {...props}>
         {children}
-        <SheetPrimitive.Close className="absolute right-4 top-4 rounded-lg p-1.5 opacity-60 ring-offset-background transition-all hover:bg-accent hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
+        <SheetPrimitive.Close className="absolute right-4 top-4 cursor-pointer rounded-lg p-1.5 opacity-60 ring-offset-background transition-all hover:bg-accent hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed">
           <X className="size-4" />
           <span className="sr-only">Close</span>
         </SheetPrimitive.Close>

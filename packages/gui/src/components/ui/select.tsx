@@ -5,7 +5,7 @@ import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 const selectTriggerVariants = cva(
-  "flex w-full items-center justify-between gap-2 whitespace-nowrap rounded-lg border border-input bg-background/60 text-sm shadow-sm ring-offset-background transition-colors placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+  "flex w-full cursor-pointer items-center justify-between gap-2 whitespace-nowrap rounded-lg border border-input bg-background/60 text-sm shadow-sm ring-offset-background transition-colors placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
   {
     variants: {
       size: {
@@ -48,7 +48,7 @@ function SelectTrigger({ className, size, children, ...props }: SelectTriggerPro
 function SelectScrollUpButton({ className, ...props }: ComponentProps<typeof SelectPrimitive.ScrollUpButton>) {
   return (
     <SelectPrimitive.ScrollUpButton
-      className={cn("flex cursor-default items-center justify-center py-1", className)}
+      className={cn("flex cursor-pointer items-center justify-center py-1", className)}
       {...props}
     >
       <ChevronUp className="size-4" />
@@ -59,7 +59,7 @@ function SelectScrollUpButton({ className, ...props }: ComponentProps<typeof Sel
 function SelectScrollDownButton({ className, ...props }: ComponentProps<typeof SelectPrimitive.ScrollDownButton>) {
   return (
     <SelectPrimitive.ScrollDownButton
-      className={cn("flex cursor-default items-center justify-center py-1", className)}
+      className={cn("flex cursor-pointer items-center justify-center py-1", className)}
       {...props}
     >
       <ChevronDown className="size-4" />
@@ -108,7 +108,7 @@ function SelectItem({ className, children, ...props }: ComponentProps<typeof Sel
   return (
     <SelectPrimitive.Item
       className={cn(
-        "relative flex w-full cursor-default select-none items-center rounded-md py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        "relative flex w-full cursor-pointer select-none items-center rounded-md py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
         className,
       )}
       {...props}
