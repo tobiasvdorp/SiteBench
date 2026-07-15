@@ -193,6 +193,35 @@ export type ComparisonResult = {
   runs: ComparisonRunSeries[];
 };
 
+export type ReportResourceFilter =
+  | "all"
+  | "assets"
+  | "page"
+  | "css"
+  | "js"
+  | "font"
+  | "image"
+  | "other";
+
+export type Report = {
+  id: string;
+  name: string;
+  siteOrigin: string;
+  runIds: string[];
+  baselineRunId: string | null;
+  resourceFilter: ReportResourceFilter;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ReportInput = {
+  name: string;
+  siteOrigin: string;
+  runIds: string[];
+  baselineRunId: string | null;
+  resourceFilter: ReportResourceFilter;
+};
+
 export const DEFAULT_COLORS = [
   "#2563eb",
   "#dc2626",

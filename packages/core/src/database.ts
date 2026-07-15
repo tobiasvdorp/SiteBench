@@ -3,6 +3,9 @@ import type {
   CrawlConfig,
   HistogramBucket,
   LatencyPercentiles,
+  Report,
+  ReportInput,
+  ReportResourceFilter,
   RequestRecord,
   ResourceType,
   Run,
@@ -13,11 +16,21 @@ import type {
   TemplateInput,
   TruncationReason,
 } from "./types.js";
-import { buildHistogram, computePercentiles, createRequestId, createRunId, createTemplateId, nowIso } from "./utils.js";
+import { buildHistogram, computePercentiles, createReportId, createRequestId, createRunId, createTemplateId, nowIso } from "./utils.js";
 import { DEFAULT_CRAWL_CONFIG } from "./defaults.js";
 
 const RESOURCE_TYPES: ResourceType[] = ["page", "css", "js", "font", "image", "other"];
 const ASSET_RESOURCE_TYPES: ResourceType[] = ["css", "js", "font", "image", "other"];
+const REPORT_RESOURCE_FILTERS: ReportResourceFilter[] = [
+  "all",
+  "assets",
+  "page",
+  "css",
+  "js",
+  "font",
+  "image",
+  "other",
+];
 
 type RequestLatencyRow = {
   resource_type: string;
@@ -93,6 +106,19 @@ CREATE TABLE IF NOT EXISTS requests (
 
 CREATE INDEX IF NOT EXISTS idx_runs_site_origin ON runs(site_origin);
 CREATE INDEX IF NOT EXISTS idx_requests_run_id ON requests(run_id);
+
+CREATE TABLE IF NOT EXISTS reports (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  site_origin TEXT NOT NULL,
+  run_ids_json TEXT NOT NULL,
+  baseline_run_id TEXT,
+  resource_filter TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_site_origin ON reports(site_origin);
 `;
 
 type TemplateRow = {
@@ -133,6 +159,35 @@ type RequestRow = {
   redirect_count: number;
   created_at: string;
 };
+
+type ReportRow = {
+  id: string;
+  name: string;
+  site_origin: string;
+  run_ids_json: string;
+  baseline_run_id: string | null;
+  resource_filter: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function rowToReport(row: ReportRow): Report {
+  const runIds = JSON.parse(row.run_ids_json) as string[];
+  const resourceFilter = REPORT_RESOURCE_FILTERS.includes(row.resource_filter as ReportResourceFilter)
+    ? (row.resource_filter as ReportResourceFilter)
+    : "all";
+
+  return {
+    id: row.id,
+    name: row.name,
+    siteOrigin: row.site_origin,
+    runIds,
+    baselineRunId: row.baseline_run_id,
+    resourceFilter,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 function rowToTemplate(row: TemplateRow): Template {
   const config = JSON.parse(row.config_json) as CrawlConfig;
@@ -306,6 +361,59 @@ export class DatabaseStore {
 
   deleteTemplate(id: string): boolean {
     const result = this.db.prepare("DELETE FROM templates WHERE id = ?").run(id);
+    return Number(result.changes) > 0;
+  }
+
+  listReports(siteOrigin?: string): Report[] {
+    const rows = siteOrigin
+      ? (this.db
+          .prepare("SELECT * FROM reports WHERE site_origin = ? ORDER BY updated_at DESC")
+          .all(siteOrigin) as ReportRow[])
+      : (this.db.prepare("SELECT * FROM reports ORDER BY updated_at DESC").all() as ReportRow[]);
+    return rows.map(rowToReport);
+  }
+
+  getReport(id: string): Report | null {
+    const row = this.db.prepare("SELECT * FROM reports WHERE id = ?").get(id) as ReportRow | undefined;
+    return row ? rowToReport(row) : null;
+  }
+
+  createReport(input: ReportInput): Report {
+    const id = createReportId();
+    const now = nowIso();
+    const resourceFilter = REPORT_RESOURCE_FILTERS.includes(input.resourceFilter) ? input.resourceFilter : "all";
+
+    this.db
+      .prepare(
+        `INSERT INTO reports (
+          id, name, site_origin, run_ids_json, baseline_run_id, resource_filter, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.name,
+        input.siteOrigin,
+        JSON.stringify(input.runIds),
+        input.baselineRunId,
+        resourceFilter,
+        now,
+        now,
+      );
+
+    return {
+      id,
+      name: input.name,
+      siteOrigin: input.siteOrigin,
+      runIds: input.runIds,
+      baselineRunId: input.baselineRunId,
+      resourceFilter,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  deleteReport(id: string): boolean {
+    const result = this.db.prepare("DELETE FROM reports WHERE id = ?").run(id);
     return Number(result.changes) > 0;
   }
 

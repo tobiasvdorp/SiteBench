@@ -7,6 +7,7 @@ import { HttpMeasurer } from "./http-measurer.js";
 import { RunRecorder } from "./run-recorder.js";
 import type {
   CrawlConfig,
+  ReportInput,
   Run,
   RunConfigSnapshot,
   RunListener,
@@ -79,6 +80,24 @@ export class SiteBench {
 
   deleteTemplate(id: string) {
     return this.store.deleteTemplate(id);
+  }
+
+  listReports(siteOrigin?: string) {
+    return this.store.listReports(siteOrigin);
+  }
+
+  getReport(id: string) {
+    return this.store.getReport(id);
+  }
+
+  createReport(input: ReportInput) {
+    const errors = validateReportInput(input);
+    if (errors.length > 0) throw new ValidationFailure(errors);
+    return this.store.createReport(input);
+  }
+
+  deleteReport(id: string) {
+    return this.store.deleteReport(id);
   }
 
   listRuns(siteOrigin?: string) {
@@ -255,6 +274,18 @@ export class StartFailure extends Error {
     super(message);
     this.name = "StartFailure";
   }
+}
+
+function validateReportInput(input: ReportInput) {
+  const errors: { field: string; message: string }[] = [];
+  const name = input.name.trim();
+  if (!name) errors.push({ field: "name", message: "Report name is required" });
+  if (!input.siteOrigin.trim()) errors.push({ field: "siteOrigin", message: "Site origin is required" });
+  if (input.runIds.length === 0) errors.push({ field: "runIds", message: "At least one run is required" });
+  if (input.baselineRunId && !input.runIds.includes(input.baselineRunId)) {
+    errors.push({ field: "baselineRunId", message: "Baseline run must be included in selected runs" });
+  }
+  return errors;
 }
 
 export { DEFAULT_DB_PATH } from "./db-path.js";

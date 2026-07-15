@@ -245,6 +245,26 @@ describe("ComparisonEngine", () => {
     expect(compare?.deltas?.p50).toBeGreaterThan(0);
   });
 
+  it("round-trips comparison reports", () => {
+    const store = createInMemoryStore();
+
+    const created = store.createReport({
+      name: "Before vs after",
+      siteOrigin: "https://example.com",
+      runIds: ["run_a", "run_b"],
+      baselineRunId: "run_a",
+      resourceFilter: "assets",
+    });
+
+    expect(store.listReports()).toHaveLength(1);
+    expect(store.getReport(created.id)?.name).toBe("Before vs after");
+    expect(store.getReport(created.id)?.runIds).toEqual(["run_a", "run_b"]);
+    expect(store.getReport(created.id)?.resourceFilter).toBe("assets");
+
+    expect(store.deleteReport(created.id)).toBe(true);
+    expect(store.listReports()).toHaveLength(0);
+  });
+
   it("handles single-run comparison", () => {
     const store = createInMemoryStore();
     const engine = new ComparisonEngine(store);

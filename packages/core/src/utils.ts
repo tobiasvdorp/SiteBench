@@ -46,6 +46,10 @@ export function createTemplateId() {
   return createId("tpl");
 }
 
+export function createReportId() {
+  return createId("rpt");
+}
+
 export function createRequestId() {
   return createId("req");
 }

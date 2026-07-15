@@ -1,4 +1,4 @@
-import type { ComparisonResult, CrawlConfig, ProgressEvent, RequestRecord, Run, Template, TemplateInput, ValidationError } from "@sitebench/core";
+import type { ComparisonResult, CrawlConfig, ProgressEvent, Report, ReportInput, RequestRecord, Run, Template, TemplateInput, ValidationError } from "@sitebench/core";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8787";
 
@@ -83,6 +83,23 @@ export function compare(siteOrigin: string, selections: { runId: string; visible
     method: "POST",
     body: JSON.stringify({ siteOrigin, selections }),
   });
+}
+
+export function listReports(site?: string) {
+  const query = site ? `?site=${encodeURIComponent(site)}` : "";
+  return request<Report[]>(`/api/reports${query}`);
+}
+
+export function getReport(id: string) {
+  return request<Report>(`/api/reports/${id}`);
+}
+
+export function createReport(input: ReportInput) {
+  return request<Report>("/api/reports", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function deleteReport(id: string) {
+  return request<void>(`/api/reports/${id}`, { method: "DELETE" });
 }
 
 export function subscribeProgress(runId: string, onProgress: (event: ProgressEvent) => void) {

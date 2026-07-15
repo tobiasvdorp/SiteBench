@@ -3,14 +3,17 @@ import { createRoot } from "react-dom/client";
 import { Copy, GitCompareArrows, Layers, Plus, Trash2 } from "lucide-react";
 import {
   compare,
+  createReport,
   createTemplate,
   deleteRun,
+  deleteReport,
   deleteTemplate,
   duplicateTemplate,
   formatApiError,
   getDefaults,
   getRun,
   getRunRequests,
+  listReports,
   listRuns,
   listTemplates,
   startRun,
@@ -18,8 +21,9 @@ import {
   subscribeProgress,
   updateTemplate,
 } from "./lib/api";
-import type { ComparisonResult, CrawlConfig, RequestProgressItem, Run, Template, TemplateInput } from "@sitebench/core";
+import type { ComparisonResult, CrawlConfig, Report, RequestProgressItem, Run, Template, TemplateInput } from "@sitebench/core";
 import { AppAlert, AppShell, type Tab } from "./components/app/AppShell";
+import { CompareReportsSidebar } from "./components/CompareReportsSidebar";
 import { CompareRunSelector } from "./components/CompareRunSelector";
 import { ComparisonView } from "./components/ComparisonView";
 import { RunDetailSheet, type RunProgressState } from "./components/RunDetailSheet";
@@ -83,6 +87,8 @@ function App() {
   const [progress, setProgress] = useState<RunProgressState | null>(null);
   const [recentRequests, setRecentRequests] = useState<RequestProgressItem[]>([]);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [activeReportId, setActiveReportId] = useState<string | null>(null);
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>(() => getStoredSelectedRunIds());
   const [baselineRunId, setBaselineRunId] = useState<string | null>(null);
   const [resourceFilter, setResourceFilter] = useState<ChartResourceFilter>(() => getStoredChartResourceFilter());
@@ -114,6 +120,10 @@ function App() {
 
   const refreshRuns = useCallback(async () => {
     setRuns(await listRuns());
+  }, []);
+
+  const refreshReports = useCallback(async (origin?: string) => {
+    setReports(await listReports(origin));
   }, []);
 
   useEffect(() => {
@@ -218,9 +228,34 @@ function App() {
   }, [runs, selectedRunIds, templates]);
 
   useEffect(() => {
+    void refreshReports(siteOrigin || undefined);
+  }, [siteOrigin, refreshReports]);
+
+  useEffect(() => {
     setStoredSelectedRunIds(selectedRunIds);
     if (selectedRunIds.length === 0) setComparison(null);
   }, [selectedRunIds]);
+
+  const reportSnapshot = useMemo(() => {
+    if (!activeReportId) return null;
+    const report = reports.find((entry) => entry.id === activeReportId);
+    if (!report) return null;
+    return {
+      runIds: report.runIds,
+      baselineRunId: report.baselineRunId,
+      resourceFilter: report.resourceFilter,
+    };
+  }, [activeReportId, reports]);
+
+  useEffect(() => {
+    if (!reportSnapshot) return;
+    const matchesReport =
+      selectedRunIds.length === reportSnapshot.runIds.length
+      && selectedRunIds.every((runId) => reportSnapshot.runIds.includes(runId))
+      && baselineRunId === reportSnapshot.baselineRunId
+      && resourceFilter === reportSnapshot.resourceFilter;
+    if (!matchesReport) setActiveReportId(null);
+  }, [selectedRunIds, baselineRunId, resourceFilter, reportSnapshot]);
 
   const refreshComparison = useCallback(async (runIds: string[], effectiveBaseline: string | null) => {
     if (runIds.length === 0 || !effectiveBaseline) {
@@ -350,6 +385,47 @@ function App() {
     navigateToTab("compare");
   };
 
+  const handleLoadReport = (report: Report) => {
+    setActiveReportId(report.id);
+    setSelectedRunIds(report.runIds);
+    setBaselineRunId(report.baselineRunId);
+    if (report.baselineRunId && report.siteOrigin) setStoredBaseline(report.siteOrigin, report.baselineRunId);
+    setResourceFilter(report.resourceFilter);
+    setStoredChartResourceFilter(report.resourceFilter);
+    navigateToTab("compare");
+  };
+
+  const handleSaveReport = async (name: string) => {
+    if (!siteOrigin || selectedRunIds.length === 0 || !baselineRunId) return;
+
+    setError(null);
+    try {
+      const report = await createReport({
+        name,
+        siteOrigin,
+        runIds: selectedRunIds,
+        baselineRunId,
+        resourceFilter,
+      });
+      await refreshReports(siteOrigin || undefined);
+      setActiveReportId(report.id);
+      setNotice(`Report "${report.name}" saved.`);
+    } catch (err) {
+      setError(formatApiError(err));
+    }
+  };
+
+  const handleDeleteReport = async (reportId: string) => {
+    setError(null);
+    try {
+      await deleteReport(reportId);
+      if (activeReportId === reportId) setActiveReportId(null);
+      await refreshReports(siteOrigin || undefined);
+    } catch (err) {
+      setError(formatApiError(err));
+    }
+  };
+
   const handleRemoveFromSelection = (runId: string) => {
     setSelectedRunIds((current) => current.filter((id) => id !== runId));
   };
@@ -418,31 +494,44 @@ function App() {
           </div>
         </TabsContent>
 
-        <TabsContent value="compare" className="mt-0 space-y-6">
-          <CompareRunSelector
-            runs={runs}
-            selectedRunIds={selectedRunIds}
-            baselineRunId={baselineRunId}
-            resourceFilter={resourceFilter}
-            isComparableRun={isComparableRun}
-            onSelectedRunIdsChange={setSelectedRunIds}
-            onBaselineChange={handleBaselineChange}
-            onResourceFilterChange={handleResourceFilterChange}
-          />
+        <TabsContent value="compare" className="mt-0">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+            <CompareReportsSidebar
+              reports={reports}
+              activeReportId={activeReportId}
+              canSave={selectedRunIds.length > 0 && baselineRunId !== null}
+              onSelectReport={handleLoadReport}
+              onSaveReport={handleSaveReport}
+              onDeleteReport={handleDeleteReport}
+            />
 
-          {comparison ? (
-            <ComparisonView
-              comparison={comparison}
-              baselineRunId={baselineRunId}
-              resourceFilter={resourceFilter}
-            />
-          ) : selectedRunIds.length === 0 ? (
-            <EmptyState
-              icon={<GitCompareArrows className="size-8" />}
-              title="No runs selected"
-              description="Select completed or stopped runs above to compare their latency distributions."
-            />
-          ) : null}
+            <div className="space-y-6">
+              <CompareRunSelector
+                runs={runs}
+                selectedRunIds={selectedRunIds}
+                baselineRunId={baselineRunId}
+                resourceFilter={resourceFilter}
+                isComparableRun={isComparableRun}
+                onSelectedRunIdsChange={setSelectedRunIds}
+                onBaselineChange={handleBaselineChange}
+                onResourceFilterChange={handleResourceFilterChange}
+              />
+
+              {comparison ? (
+                <ComparisonView
+                  comparison={comparison}
+                  baselineRunId={baselineRunId}
+                  resourceFilter={resourceFilter}
+                />
+              ) : selectedRunIds.length === 0 ? (
+                <EmptyState
+                  icon={<GitCompareArrows className="size-8" />}
+                  title="No runs selected"
+                  description="Select completed or stopped runs above to compare their latency distributions."
+                />
+              ) : null}
+            </div>
+          </div>
         </TabsContent>
 
         <TabsContent value="templates" className="mt-0">

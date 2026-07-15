@@ -7,6 +7,7 @@ import {
   StartFailure,
   type CrawlConfig,
   type RequestProgressItem,
+  type ReportInput,
   type TemplateInput,
 } from "@sitebench/core";
 
@@ -67,6 +68,20 @@ function templateInputFromBody(body: Record<string, unknown>): TemplateInput {
     connectTimeoutMs: Number(body.connectTimeoutMs ?? DEFAULT_CRAWL_CONFIG.connectTimeoutMs),
     maxRedirects: Number(body.maxRedirects ?? DEFAULT_CRAWL_CONFIG.maxRedirects),
     maxRetries: Number(body.maxRetries ?? DEFAULT_CRAWL_CONFIG.maxRetries),
+  };
+}
+
+function reportInputFromBody(body: Record<string, unknown>): ReportInput {
+  const runIds = Array.isArray(body.runIds)
+    ? body.runIds.filter((runId): runId is string => typeof runId === "string" && runId.length > 0)
+    : [];
+
+  return {
+    name: String(body.name ?? ""),
+    siteOrigin: String(body.siteOrigin ?? ""),
+    runIds,
+    baselineRunId: body.baselineRunId ? String(body.baselineRunId) : null,
+    resourceFilter: String(body.resourceFilter ?? "all") as ReportInput["resourceFilter"],
   };
 }
 
@@ -226,6 +241,37 @@ export function createApiServer() {
         const siteOrigin = String(body.siteOrigin ?? "");
         const selections = (body.selections as { runId: string; visible?: boolean; color?: string; isBaseline?: boolean }[]) ?? [];
         sendJson(res, 200, bench.compare(siteOrigin, selections));
+        return;
+      }
+
+      if (req.method === "GET" && path === "/api/reports") {
+        const site = url.searchParams.get("site") ?? undefined;
+        sendJson(res, 200, bench.listReports(site));
+        return;
+      }
+
+      if (req.method === "POST" && path === "/api/reports") {
+        const body = await readBody(req);
+        const created = bench.createReport(reportInputFromBody(body));
+        sendJson(res, 201, created);
+        return;
+      }
+
+      if (req.method === "GET" && path.startsWith("/api/reports/")) {
+        const id = path.split("/").pop()!;
+        const report = bench.getReport(id);
+        if (!report) {
+          sendJson(res, 404, { message: "Report not found" });
+          return;
+        }
+        sendJson(res, 200, report);
+        return;
+      }
+
+      if (req.method === "DELETE" && path.startsWith("/api/reports/")) {
+        const id = path.split("/").pop()!;
+        bench.deleteReport(id);
+        sendJson(res, 204, null);
         return;
       }
 
