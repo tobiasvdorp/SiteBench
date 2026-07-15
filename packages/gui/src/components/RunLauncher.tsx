@@ -32,6 +32,7 @@ type OverrideFields = Pick<
   | "timeLimitSeconds"
   | "allowImages"
   | "excludePagesFromResults"
+  | "dedupeRequests"
   | "requestTimeoutMs"
   | "connectTimeoutMs"
   | "maxRedirects"
@@ -52,6 +53,7 @@ function templateToOverrides(template: Template): OverrideFields {
     timeLimitSeconds: template.timeLimitSeconds,
     allowImages: template.allowImages,
     excludePagesFromResults: template.excludePagesFromResults,
+    dedupeRequests: template.dedupeRequests,
     requestTimeoutMs: template.requestTimeoutMs,
     connectTimeoutMs: template.connectTimeoutMs,
     maxRedirects: template.maxRedirects,
@@ -85,6 +87,7 @@ function diffOverrides(base: OverrideFields, current: OverrideFormFields): Parti
   if (current.excludePagesFromResults !== base.excludePagesFromResults) {
     overrides.excludePagesFromResults = current.excludePagesFromResults;
   }
+  if (current.dedupeRequests !== base.dedupeRequests) overrides.dedupeRequests = current.dedupeRequests;
   if (current.requestTimeoutMs !== base.requestTimeoutMs) overrides.requestTimeoutMs = current.requestTimeoutMs;
   if (current.connectTimeoutMs !== base.connectTimeoutMs) overrides.connectTimeoutMs = current.connectTimeoutMs;
   if (current.maxRedirects !== base.maxRedirects) overrides.maxRedirects = current.maxRedirects;
@@ -100,6 +103,7 @@ function formatTemplateConfigSummary(template: Template) {
     template.timeLimitSeconds === null ? "no time limit" : `${template.timeLimitSeconds}s`,
     template.allowImages ? "images" : "no images",
     template.excludePagesFromResults ? "assets only" : "all requests",
+    template.dedupeRequests ? "dedupe on" : "dedupe off",
   ];
   return parts.join(" · ");
 }
@@ -330,6 +334,16 @@ export function RunLauncher({ templates, onStart, onEditTemplate, onCreateTempla
               />
               <Label htmlFor="override-exclude-pages-from-results" className="font-normal">
                 Exclude HTML pages from saved run data
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="override-dedupe-requests"
+                checked={overrides.dedupeRequests}
+                onCheckedChange={(checked) => setOverrides({ ...overrides, dedupeRequests: checked === true })}
+              />
+              <Label htmlFor="override-dedupe-requests" className="font-normal">
+                Deduplicate requests
               </Label>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">

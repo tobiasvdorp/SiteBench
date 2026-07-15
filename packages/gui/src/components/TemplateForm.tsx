@@ -34,6 +34,7 @@ export function TemplateForm({ defaults, template, onSave }: Props) {
     timeLimitSeconds: defaults?.timeLimitSeconds ? String(defaults.timeLimitSeconds) : "",
     allowImages: defaults?.allowImages ?? false,
     excludePagesFromResults: defaults?.excludePagesFromResults ?? false,
+    dedupeRequests: defaults?.dedupeRequests ?? true,
     requestTimeoutMs: defaults?.requestTimeoutMs ?? 30_000,
     connectTimeoutMs: defaults?.connectTimeoutMs ?? 10_000,
     maxRedirects: defaults?.maxRedirects ?? 5,
@@ -60,6 +61,7 @@ export function TemplateForm({ defaults, template, onSave }: Props) {
       timeLimitSeconds: template.timeLimitSeconds === null ? "" : String(template.timeLimitSeconds),
       allowImages: template.allowImages,
       excludePagesFromResults: template.excludePagesFromResults,
+      dedupeRequests: template.dedupeRequests,
       requestTimeoutMs: template.requestTimeoutMs,
       connectTimeoutMs: template.connectTimeoutMs,
       maxRedirects: template.maxRedirects,
@@ -191,6 +193,16 @@ export function TemplateForm({ defaults, template, onSave }: Props) {
               />
               <Label htmlFor="template-exclude-pages-from-results" className="font-normal">
                 Exclude HTML pages from saved run data
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="template-dedupe-requests"
+                checked={form.dedupeRequests}
+                onCheckedChange={(checked) => setForm({ ...form, dedupeRequests: checked === true })}
+              />
+              <Label htmlFor="template-dedupe-requests" className="font-normal">
+                Deduplicate requests
               </Label>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">

@@ -11,6 +11,7 @@ export const DEFAULT_MAX_REDIRECTS = 5;
 export const DEFAULT_MAX_RETRIES = 2;
 export const DEFAULT_ALLOW_IMAGES = false;
 export const DEFAULT_EXCLUDE_PAGES_FROM_RESULTS = false;
+export const DEFAULT_DEDUPE_REQUESTS = true;
 export const DEFAULT_RESPECT_ROBOTS = true;
 
 export const DEFAULT_CRAWL_CONFIG: CrawlConfig = {
@@ -21,6 +22,7 @@ export const DEFAULT_CRAWL_CONFIG: CrawlConfig = {
   timeLimitSeconds: DEFAULT_TIME_LIMIT_SECONDS,
   allowImages: DEFAULT_ALLOW_IMAGES,
   excludePagesFromResults: DEFAULT_EXCLUDE_PAGES_FROM_RESULTS,
+  dedupeRequests: DEFAULT_DEDUPE_REQUESTS,
   respectRobots: DEFAULT_RESPECT_ROBOTS,
   requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
   connectTimeoutMs: DEFAULT_CONNECT_TIMEOUT_MS,

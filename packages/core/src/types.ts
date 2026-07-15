@@ -29,6 +29,7 @@ export type CrawlConfig = {
   timeLimitSeconds: number | null;
   allowImages: boolean;
   excludePagesFromResults: boolean;
+  dedupeRequests: boolean;
   respectRobots: boolean;
   requestTimeoutMs: number;
   connectTimeoutMs: number;

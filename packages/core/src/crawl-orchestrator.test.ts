@@ -12,6 +12,7 @@ function createSnapshot(
   allowImages: boolean,
   maxPages: number | null = 1,
   excludePagesFromResults = false,
+  dedupeRequests = true,
 ) {
   return {
     startUrl: `${baseUrl}/`,
@@ -21,6 +22,7 @@ function createSnapshot(
     timeLimitSeconds: null,
     allowImages,
     excludePagesFromResults,
+    dedupeRequests,
     respectRobots: false,
     requestTimeoutMs: 5000,
     connectTimeoutMs: 2000,
@@ -46,9 +48,10 @@ async function runFixtureCrawl(
   allowImages: boolean,
   maxPages: number | null = 1,
   excludePagesFromResults = false,
+  dedupeRequests = true,
 ) {
   const store = createInMemoryStore();
-  const snapshot = createSnapshot(baseUrl, allowImages, maxPages, excludePagesFromResults);
+  const snapshot = createSnapshot(baseUrl, allowImages, maxPages, excludePagesFromResults, dedupeRequests);
   const run = store.createRun(`fixture-${allowImages}-${maxPages}`, baseUrl, snapshot);
   const recorder = new RunRecorder(store, run.id, { excludePagesFromResults });
 
@@ -184,6 +187,15 @@ describe("CrawlOrchestrator", () => {
     expect(requests.filter((request) => request.resourceType === "page")).toHaveLength(2);
   });
 
+  it("re-fetches previously visited pages when dedupeRequests is disabled", async () => {
+    const { requests } = await runFixtureCrawl(baseUrl, false, 3, false, false);
+    const hits = fixture.getHits();
+
+    expect(hitCount(hits, "/")).toBe(2);
+    expect(hitCount(hits, "/page2")).toBe(1);
+    expect(requests.filter((request) => request.resourceType === "page")).toHaveLength(3);
+  });
+
   it("still crawls pages but omits them from saved requests when excludePagesFromResults is true", async () => {
     const { requests, aggregates } = await runFixtureCrawl(baseUrl, false, 2, true);
     const hits = fixture.getHits();
@@ -244,6 +256,7 @@ describe("CrawlOrchestrator", () => {
       timeLimitSeconds: 1,
       allowImages: false,
       excludePagesFromResults: false,
+      dedupeRequests: true,
       respectRobots: false,
       requestTimeoutMs: 5000,
       connectTimeoutMs: 2000,

@@ -27,6 +27,7 @@ const PAGE2_HTML = `<!DOCTYPE html>
 <html>
   <body>
     page2
+    <a href="/">home</a>
     <script src="/page2.js"></script>
   </body>
 </html>`;

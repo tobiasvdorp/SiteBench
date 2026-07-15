@@ -57,7 +57,9 @@ export class CrawlPolicy {
     const normalized = normalizeUrl(url);
     if (!normalized) return { allowed: false, reason: "invalid-url" };
     if (!isSameOrigin(normalized, this.origin)) return { allowed: false, reason: "off-origin" };
-    if (this.seenPages.has(normalized)) return { allowed: false, reason: "duplicate" };
+    if (this.config.dedupeRequests && this.seenPages.has(normalized)) {
+      return { allowed: false, reason: "duplicate" };
+    }
     if (this.isPageLimitReached()) return { allowed: false, reason: "max-pages" };
 
     if (this.config.respectRobots && this.robots && !this.robots.isAllowed(normalized, "SiteBench")) {
@@ -68,6 +70,7 @@ export class CrawlPolicy {
   }
 
   markPageQueued(url: string) {
+    if (!this.config.dedupeRequests) return;
     const normalized = normalizeUrl(url);
     if (!normalized) return;
     this.seenPages.add(normalized);
@@ -81,7 +84,9 @@ export class CrawlPolicy {
     const normalized = normalizeUrl(url);
     if (!normalized) return { allowed: false, reason: "invalid-url" };
     if (!isSameOrigin(normalized, this.origin)) return { allowed: false, reason: "off-origin" };
-    if (this.seenAssets.has(normalized)) return { allowed: false, reason: "duplicate" };
+    if (this.config.dedupeRequests && this.seenAssets.has(normalized)) {
+      return { allowed: false, reason: "duplicate" };
+    }
 
     const resolvedType = resourceType === "other" ? detectResourceType(normalized) : resourceType;
     if (resolvedType === "image" && !this.config.allowImages) {
@@ -96,6 +101,7 @@ export class CrawlPolicy {
   }
 
   markAssetQueued(url: string) {
+    if (!this.config.dedupeRequests) return;
     const normalized = normalizeUrl(url);
     if (!normalized) return;
     this.seenAssets.add(normalized);

@@ -1,6 +1,7 @@
 import {
   DEFAULT_ALLOW_IMAGES,
   DEFAULT_EXCLUDE_PAGES_FROM_RESULTS,
+  DEFAULT_DEDUPE_REQUESTS,
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_CRAWL_CONFIG,
   DEFAULT_MAX_PAGES,
@@ -135,6 +136,8 @@ export function validateCrawlConfig(
   const excludePagesFromResults =
     validateBoolean(input.excludePagesFromResults, "excludePagesFromResults", errors) ??
     DEFAULT_EXCLUDE_PAGES_FROM_RESULTS;
+  const dedupeRequests =
+    validateBoolean(input.dedupeRequests, "dedupeRequests", errors) ?? DEFAULT_DEDUPE_REQUESTS;
   const respectRobots =
     validateBoolean(input.respectRobots, "respectRobots", errors) ?? DEFAULT_RESPECT_ROBOTS;
   const requestTimeoutMs =
@@ -172,6 +175,7 @@ export function validateCrawlConfig(
       timeLimitSeconds,
       allowImages,
       excludePagesFromResults,
+      dedupeRequests,
       respectRobots,
       requestTimeoutMs,
       connectTimeoutMs,
@@ -192,6 +196,7 @@ export function mergeCrawlConfig(base: CrawlConfig, overrides: PartialCrawlConfi
     allowImages: overrides.allowImages ?? base.allowImages,
     excludePagesFromResults:
       overrides.excludePagesFromResults ?? base.excludePagesFromResults,
+    dedupeRequests: overrides.dedupeRequests ?? base.dedupeRequests,
     respectRobots: overrides.respectRobots ?? base.respectRobots,
     requestTimeoutMs: overrides.requestTimeoutMs ?? base.requestTimeoutMs,
     connectTimeoutMs: overrides.connectTimeoutMs ?? base.connectTimeoutMs,

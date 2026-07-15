@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import {
   DEFAULT_ALLOW_IMAGES,
+  DEFAULT_DEDUPE_REQUESTS,
   DEFAULT_EXCLUDE_PAGES_FROM_RESULTS,
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_MAX_PAGES,
@@ -48,6 +49,7 @@ function parseOverrides(command: Command): Partial<CrawlConfig> {
   if (opts.excludePagesFromResults !== undefined) {
     overrides.excludePagesFromResults = parseBool(String(opts.excludePagesFromResults));
   }
+  if (opts.dedupeRequests !== undefined) overrides.dedupeRequests = parseBool(String(opts.dedupeRequests));
   if (opts.respectRobots !== undefined) overrides.respectRobots = parseBool(String(opts.respectRobots));
   if (opts.requestTimeout !== undefined) overrides.requestTimeoutMs = Number(opts.requestTimeout);
   if (opts.connectTimeout !== undefined) overrides.connectTimeoutMs = Number(opts.connectTimeout);
@@ -72,6 +74,8 @@ function templateInputFromOptions(name: string, command: Command): TemplateInput
       opts.excludePagesFromResults !== undefined
         ? parseBool(String(opts.excludePagesFromResults))
         : DEFAULT_EXCLUDE_PAGES_FROM_RESULTS,
+    dedupeRequests:
+      opts.dedupeRequests !== undefined ? parseBool(String(opts.dedupeRequests)) : DEFAULT_DEDUPE_REQUESTS,
     respectRobots: true,
     requestTimeoutMs: Number(opts.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MS),
     connectTimeoutMs: Number(opts.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT_MS),
@@ -84,7 +88,7 @@ function printTemplate(template: ReturnType<SiteBench["getTemplate"]>) {
   if (!template) return;
   console.log(`${template.id}\t${template.name}\t${template.startUrl}`);
   console.log(
-    `  rps=${template.rpsLimit} workers=${template.workerCount} maxPages=${template.maxPages ?? "none"} timeLimitSeconds=${template.timeLimitSeconds ?? "none"} allowImages=${template.allowImages} excludePagesFromResults=${template.excludePagesFromResults} respectRobots=${template.respectRobots}`,
+    `  rps=${template.rpsLimit} workers=${template.workerCount} maxPages=${template.maxPages ?? "none"} timeLimitSeconds=${template.timeLimitSeconds ?? "none"} allowImages=${template.allowImages} excludePagesFromResults=${template.excludePagesFromResults} dedupeRequests=${template.dedupeRequests} respectRobots=${template.respectRobots}`,
   );
 }
 
@@ -121,6 +125,7 @@ export function createCli(program: Command) {
       console.log(`  maxRetries: ${DEFAULT_MAX_RETRIES}`);
       console.log(`  allowImages: ${DEFAULT_ALLOW_IMAGES}`);
       console.log(`  excludePagesFromResults: ${DEFAULT_EXCLUDE_PAGES_FROM_RESULTS}`);
+      console.log(`  dedupeRequests: ${DEFAULT_DEDUPE_REQUESTS}`);
       console.log(`  respectRobots: ${DEFAULT_RESPECT_ROBOTS}`);
     });
 
@@ -148,6 +153,7 @@ export function createCli(program: Command) {
     .option("--time-limit-seconds <number>", "Maximum run duration in seconds")
     .option("--allow-images <bool>", "Fetch images")
     .option("--exclude-pages-from-results <bool>", "Omit HTML page requests from saved run data")
+    .option("--dedupe-requests <bool>", "Skip already-queued page and asset URLs")
     .option("--request-timeout <ms>", "Request timeout in ms", String(DEFAULT_REQUEST_TIMEOUT_MS))
     .option("--connect-timeout <ms>", "Connect timeout in ms", String(DEFAULT_CONNECT_TIMEOUT_MS))
     .option("--max-redirects <number>", "Maximum redirects", String(DEFAULT_MAX_REDIRECTS))
@@ -180,6 +186,7 @@ export function createCli(program: Command) {
     .option("--time-limit-seconds <number>", "Maximum run duration in seconds")
     .option("--allow-images <bool>", "Fetch images")
     .option("--exclude-pages-from-results <bool>", "Omit HTML page requests from saved run data")
+    .option("--dedupe-requests <bool>", "Skip already-queued page and asset URLs")
     .option("--request-timeout <ms>", "Request timeout in ms")
     .option("--connect-timeout <ms>", "Connect timeout in ms")
     .option("--max-redirects <number>", "Maximum redirects")
@@ -237,6 +244,7 @@ export function createCli(program: Command) {
     .option("--time-limit-seconds <number>", "Override maximum run duration in seconds")
     .option("--allow-images <bool>", "Override image fetching")
     .option("--exclude-pages-from-results <bool>", "Override HTML page persistence in run data")
+    .option("--dedupe-requests <bool>", "Override request deduplication")
     .option("--respect-robots <bool>", "Override robots.txt behavior")
     .option("--request-timeout <ms>", "Override request timeout")
     .option("--connect-timeout <ms>", "Override connect timeout")

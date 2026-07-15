@@ -145,6 +145,7 @@ function rowToTemplate(row: TemplateRow): Template {
     workerCount: config.workerCount ?? DEFAULT_CRAWL_CONFIG.workerCount,
     timeLimitSeconds: config.timeLimitSeconds ?? null,
     excludePagesFromResults: config.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
+    dedupeRequests: config.dedupeRequests ?? DEFAULT_CRAWL_CONFIG.dedupeRequests,
   };
 }
 
@@ -161,6 +162,7 @@ function rowToRun(row: RunRow): Run {
       timeLimitSeconds: configSnapshot.timeLimitSeconds ?? null,
       excludePagesFromResults:
         configSnapshot.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
+      dedupeRequests: configSnapshot.dedupeRequests ?? DEFAULT_CRAWL_CONFIG.dedupeRequests,
     },
     startedAt: row.started_at,
     completedAt: row.completed_at,
@@ -236,6 +238,7 @@ export class DatabaseStore {
       timeLimitSeconds: input.timeLimitSeconds,
       allowImages: input.allowImages,
       excludePagesFromResults: input.excludePagesFromResults,
+      dedupeRequests: input.dedupeRequests,
       respectRobots: true,
       requestTimeoutMs: input.requestTimeoutMs,
       connectTimeoutMs: input.connectTimeoutMs,
@@ -265,6 +268,7 @@ export class DatabaseStore {
       timeLimitSeconds: input.timeLimitSeconds,
       allowImages: input.allowImages,
       excludePagesFromResults: input.excludePagesFromResults,
+      dedupeRequests: input.dedupeRequests,
       respectRobots: true,
       requestTimeoutMs: input.requestTimeoutMs,
       connectTimeoutMs: input.connectTimeoutMs,
@@ -291,6 +295,7 @@ export class DatabaseStore {
       timeLimitSeconds: existing.timeLimitSeconds,
       allowImages: existing.allowImages,
       excludePagesFromResults: existing.excludePagesFromResults,
+      dedupeRequests: existing.dedupeRequests,
       respectRobots: existing.respectRobots,
       requestTimeoutMs: existing.requestTimeoutMs,
       connectTimeoutMs: existing.connectTimeoutMs,
@@ -528,6 +533,7 @@ export function templateInputFromTemplate(template: Template): TemplateInput {
     timeLimitSeconds: template.timeLimitSeconds,
     allowImages: template.allowImages,
     excludePagesFromResults: template.excludePagesFromResults,
+    dedupeRequests: template.dedupeRequests,
     respectRobots: template.respectRobots,
     requestTimeoutMs: template.requestTimeoutMs,
     connectTimeoutMs: template.connectTimeoutMs,

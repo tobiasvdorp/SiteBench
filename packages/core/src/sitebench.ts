@@ -130,6 +130,7 @@ export class SiteBench {
           allowImages: input.overrides.allowImages ?? DEFAULT_CRAWL_CONFIG.allowImages,
           excludePagesFromResults:
             input.overrides.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
+          dedupeRequests: input.overrides.dedupeRequests ?? DEFAULT_CRAWL_CONFIG.dedupeRequests,
           respectRobots: input.overrides.respectRobots ?? DEFAULT_CRAWL_CONFIG.respectRobots,
           requestTimeoutMs: input.overrides.requestTimeoutMs ?? DEFAULT_CRAWL_CONFIG.requestTimeoutMs,
           connectTimeoutMs: input.overrides.connectTimeoutMs ?? DEFAULT_CRAWL_CONFIG.connectTimeoutMs,

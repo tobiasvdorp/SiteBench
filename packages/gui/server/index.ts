@@ -61,6 +61,7 @@ function templateInputFromBody(body: Record<string, unknown>): TemplateInput {
     excludePagesFromResults: Boolean(
       body.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
     ),
+    dedupeRequests: Boolean(body.dedupeRequests ?? DEFAULT_CRAWL_CONFIG.dedupeRequests),
     respectRobots: true,
     requestTimeoutMs: Number(body.requestTimeoutMs ?? DEFAULT_CRAWL_CONFIG.requestTimeoutMs),
     connectTimeoutMs: Number(body.connectTimeoutMs ?? DEFAULT_CRAWL_CONFIG.connectTimeoutMs),

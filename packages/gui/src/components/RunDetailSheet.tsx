@@ -162,6 +162,9 @@ export function RunDetailSheet({
               {run.configSnapshot.excludePagesFromResults && (
                 <Badge variant="secondary">Pages excluded from results</Badge>
               )}
+              {!run.configSnapshot.dedupeRequests && (
+                <Badge variant="secondary">Revisits allowed</Badge>
+              )}
               <span className="font-mono text-xs text-muted-foreground">{run.siteOrigin}</span>
             </div>
 

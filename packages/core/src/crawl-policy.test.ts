@@ -45,4 +45,25 @@ describe("CrawlPolicy", () => {
     const policy = new CrawlPolicy(origin, { ...baseConfig, allowImages: true });
     expect(policy.shouldFetchAsset(`${origin}/logo.png`, "image").allowed).toBe(true);
   });
+
+  it("rejects duplicate pages when dedupeRequests is enabled", () => {
+    const policy = new CrawlPolicy(origin, { ...baseConfig, dedupeRequests: true });
+    expect(policy.shouldEnqueuePage(`${origin}/a`).allowed).toBe(true);
+    policy.markPageQueued(`${origin}/a`);
+    expect(policy.shouldEnqueuePage(`${origin}/a`).allowed).toBe(false);
+  });
+
+  it("allows duplicate pages when dedupeRequests is disabled", () => {
+    const policy = new CrawlPolicy(origin, { ...baseConfig, dedupeRequests: false, maxPages: 10 });
+    expect(policy.shouldEnqueuePage(`${origin}/a`).allowed).toBe(true);
+    policy.markPageQueued(`${origin}/a`);
+    expect(policy.shouldEnqueuePage(`${origin}/a`).allowed).toBe(true);
+  });
+
+  it("allows duplicate assets when dedupeRequests is disabled", () => {
+    const policy = new CrawlPolicy(origin, { ...baseConfig, dedupeRequests: false });
+    expect(policy.shouldFetchAsset(`${origin}/app.js`, "js").allowed).toBe(true);
+    policy.markAssetQueued(`${origin}/app.js`);
+    expect(policy.shouldFetchAsset(`${origin}/app.js`, "js").allowed).toBe(true);
+  });
 });
