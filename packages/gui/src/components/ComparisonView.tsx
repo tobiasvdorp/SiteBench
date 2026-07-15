@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { ComparisonResult } from "@sitebench/core";
+import type { ComparisonResult, RequestRecord } from "@sitebench/core";
 import {
   HISTOGRAM_BUCKET_SIZE_MS,
   HISTOGRAM_MAX_MS,
@@ -41,9 +41,11 @@ import {
 import { getRunRequests } from "@/lib/api";
 import {
   buildDistributionChartData,
+  buildDerivedRunSeriesFromRequests,
   buildSummaryRuns,
   buildTimelineTrendChart,
   buildTimelineRunSeries,
+  chartRequestScopeLabel,
   chartResourceFilterLabel,
   formatAxisTick,
   formatDistributionAxisValue,
@@ -52,7 +54,6 @@ import {
   timelineResourceFilterDescription,
   resolveBaselineRunId,
   resolveEffectiveChartRange,
-  type TimelineRunSeries,
   type TimelineTrendChart,
   TIMELINE_BUCKET_COUNT,
   withBaseline,
@@ -62,6 +63,7 @@ type Props = {
   comparison: ComparisonResult;
   baselineRunId: string | null;
   resourceFilter: ChartResourceFilter;
+  uniqueRequests: boolean;
 };
 
 type DistributionTooltipProps = {
@@ -195,30 +197,30 @@ function resolveInitialColors(comparison: ComparisonResult): Record<string, stri
   );
 }
 
-export function ComparisonView({ comparison, baselineRunId, resourceFilter }: Props) {
+export function ComparisonView({ comparison, baselineRunId, resourceFilter, uniqueRequests }: Props) {
   const [runColors, setRunColors] = useState<Record<string, string>>(() => resolveInitialColors(comparison));
   const [rangeMode] = useState<ChartRangeMode>(() => getStoredChartRangeMode());
   const [customMinMs] = useState(() => getStoredChartRangeMinMs() ?? 0);
   const [customMaxMs] = useState(() => getStoredChartRangeMaxMs() ?? HISTOGRAM_MAX_MS);
-  const [timelineByRunId, setTimelineByRunId] = useState<
-    Record<string, { durationMs: number; points: TimelineRunSeries["points"] }>
-  >({});
-  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [requestsByRunId, setRequestsByRunId] = useState<Record<string, RequestRecord[]>>({});
+  const [requestsLoading, setRequestsLoading] = useState(false);
 
   const effectiveBaselineRunId = useMemo(
     () => resolveBaselineRunId(comparison.runs.map((run) => run.runId), baselineRunId),
     [comparison.runs, baselineRunId],
   );
 
-  const runs = useMemo(
-    () =>
-      withBaseline(
-        comparison.runs.map((run) => ({ ...run, color: runColors[run.runId] ?? run.color })),
-        effectiveBaselineRunId,
-        VALUE_MODE,
-      ),
-    [comparison.runs, runColors, effectiveBaselineRunId],
-  );
+  const runs = useMemo(() => {
+    const coloredRuns = comparison.runs.map((run) => ({
+      ...run,
+      color: runColors[run.runId] ?? run.color,
+    }));
+    const sourceRuns = uniqueRequests
+      ? coloredRuns.map((run) => buildDerivedRunSeriesFromRequests(run, requestsByRunId[run.runId] ?? []))
+      : coloredRuns;
+
+    return withBaseline(sourceRuns, effectiveBaselineRunId, VALUE_MODE);
+  }, [comparison.runs, runColors, effectiveBaselineRunId, uniqueRequests, requestsByRunId]);
 
   useEffect(() => {
     setRunColors(resolveInitialColors(comparison));
@@ -248,49 +250,45 @@ export function ComparisonView({ comparison, baselineRunId, resourceFilter }: Pr
   useEffect(() => {
     const runIds = comparison.runs.map((run) => run.runId);
     if (runIds.length === 0) {
-      setTimelineByRunId({});
+      setRequestsByRunId({});
       return;
     }
 
     let cancelled = false;
-    setTimelineLoading(true);
+    setRequestsLoading(true);
 
     void (async () => {
       try {
         const entries = await Promise.all(
           comparison.runs.map(async (run) => {
             const requests = await getRunRequests(run.runId);
-            const series = buildTimelineRunSeries(run, requests, resourceFilter);
-            return [run.runId, { durationMs: series.durationMs, points: series.points }] as const;
+            return [run.runId, requests] as const;
           }),
         );
-        if (!cancelled) setTimelineByRunId(Object.fromEntries(entries));
+        if (!cancelled) setRequestsByRunId(Object.fromEntries(entries));
       } finally {
-        if (!cancelled) setTimelineLoading(false);
+        if (!cancelled) setRequestsLoading(false);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [comparison.runs, resourceFilter]);
+  }, [comparison.runs]);
 
   const timelineRuns = useMemo(
     () =>
       runs
-        .map((run) => {
-          const timeline = timelineByRunId[run.runId];
-          return {
-            runId: run.runId,
-            runName: run.runName,
-            color: run.color,
-            durationMs: timeline?.durationMs ?? 0,
-            points: timeline?.points ?? [],
-          };
-        })
+        .map((run) =>
+          buildTimelineRunSeries(run, requestsByRunId[run.runId] ?? [], resourceFilter, uniqueRequests),
+        )
         .filter((series) => series.points.length > 0),
-    [runs, timelineByRunId],
+    [runs, requestsByRunId, resourceFilter, uniqueRequests],
   );
+
+  const requestScopeLabel = chartRequestScopeLabel(uniqueRequests);
+  const resourceFilterLabel = chartResourceFilterLabel(resourceFilter).toLowerCase();
+  const chartDataPending = uniqueRequests && requestsLoading;
 
   const timelineTrendChart = useMemo(() => buildTimelineTrendChart(timelineRuns), [timelineRuns]);
 
@@ -313,10 +311,18 @@ export function ComparisonView({ comparison, baselineRunId, resourceFilter }: Pr
         <CardHeader>
           <SectionHeader
             title="Percentile summary"
-            description={`Latency percentiles for ${chartResourceFilterLabel(resourceFilter).toLowerCase()} with baseline deltas as relative change. The chart below shows each run's share of requests per ${HISTOGRAM_BUCKET_SIZE_MS} ms bucket; dashed lines mark p50 per run.`}
+            description={`Latency percentiles for ${requestScopeLabel} (${resourceFilterLabel}) with baseline deltas as relative change. The chart below shows each run's share of requests per ${HISTOGRAM_BUCKET_SIZE_MS} ms bucket; dashed lines mark p50 per run.`}
           />
         </CardHeader>
         <CardContent className="space-y-6">
+          {chartDataPending ? (
+            <EmptyState
+              title="Loading comparison data"
+              description="Fetching per-request data to compute unique request metrics."
+              className="min-h-[280px] border-0 bg-transparent"
+            />
+          ) : (
+            <>
           <Table>
             <TableHeader>
               <TableRow>
@@ -428,6 +434,8 @@ export function ComparisonView({ comparison, baselineRunId, resourceFilter }: Pr
               </ResponsiveContainer>
             </div>
           )}
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -435,11 +443,11 @@ export function ComparisonView({ comparison, baselineRunId, resourceFilter }: Pr
         <CardHeader>
           <SectionHeader
             title="Response time timeline"
-            description={`p50 response time per ${timelineResourceFilterDescription(resourceFilter)} across run progress (0–100%). Each run is split into ${TIMELINE_BUCKET_COUNT} time buckets so you can compare trends without individual request noise.`}
+            description={`p50 response time per ${timelineResourceFilterDescription(resourceFilter)} (${requestScopeLabel}) across run progress (0–100%). Each run is split into ${TIMELINE_BUCKET_COUNT} time buckets so you can compare trends without individual request noise.`}
           />
         </CardHeader>
         <CardContent className="space-y-4">
-          {timelineLoading ? (
+          {requestsLoading ? (
             <EmptyState
               title="Loading timeline"
               description="Fetching per-request data for the selected runs."
@@ -448,7 +456,7 @@ export function ComparisonView({ comparison, baselineRunId, resourceFilter }: Pr
           ) : timelineRuns.length === 0 ? (
             <EmptyState
               title="No timeline data"
-              description={`No ${chartResourceFilterLabel(resourceFilter).toLowerCase()} requests found for the selected runs.`}
+              description={`No ${requestScopeLabel} for ${resourceFilterLabel} found for the selected runs.`}
               className="min-h-[280px] border-0 bg-transparent"
             />
           ) : (
@@ -508,7 +516,9 @@ export function ComparisonView({ comparison, baselineRunId, resourceFilter }: Pr
           )}
           <p className="text-xs text-muted-foreground">
             Lines show the p50 response time within each {Math.round(100 / TIMELINE_BUCKET_COUNT)}% slice of run progress. Hover a point for p95 and request count per run.
-            All requests are used for bucketing, so large runs stay accurate without plotting every dot.
+            {uniqueRequests
+              ? " Only the first occurrence of each URL is included, so revisits are excluded."
+              : " All recorded requests are included, including revisits to the same URL."}
           </p>
         </CardContent>
       </Card>

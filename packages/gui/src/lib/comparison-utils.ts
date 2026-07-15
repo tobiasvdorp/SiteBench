@@ -1,4 +1,5 @@
 import type { ComparisonRunSeries, HistogramBucket, Report, RequestRecord, ResourceType } from "@sitebench/core";
+import { buildHistogram, computePercentiles } from "@sitebench/core/histogram";
 import {
   axisTickIntervalMs,
   bucketIndicesInRange,
@@ -17,9 +18,10 @@ import type { ChartRangeMode, ChartResourceFilter, ChartValueMode } from "@/lib/
 const PERCENTILE_KEYS = ["p50", "p75", "p90", "p95", "p99"] as const;
 
 const ASSET_RESOURCE_TYPES: ResourceType[] = ["css", "js", "font", "image", "other"];
+const RESOURCE_TYPES: ResourceType[] = ["page", ...ASSET_RESOURCE_TYPES];
 
 export const CHART_RESOURCE_FILTER_OPTIONS: { value: ChartResourceFilter; label: string }[] = [
-  { value: "all", label: "All requests" },
+  { value: "all", label: "All types" },
   { value: "page", label: "Pages" },
   { value: "assets", label: "Assets" },
   { value: "css", label: "CSS" },
@@ -30,7 +32,68 @@ export const CHART_RESOURCE_FILTER_OPTIONS: { value: ChartResourceFilter; label:
 ];
 
 export function chartResourceFilterLabel(filter: ChartResourceFilter): string {
-  return CHART_RESOURCE_FILTER_OPTIONS.find((option) => option.value === filter)?.label ?? "All requests";
+  return CHART_RESOURCE_FILTER_OPTIONS.find((option) => option.value === filter)?.label ?? "All types";
+}
+
+export function chartRequestScopeLabel(uniqueOnly: boolean): string {
+  return uniqueOnly ? "unique requests" : "all requests";
+}
+
+function requestLatencyMs(request: RequestRecord): number {
+  return request.timings.ttfbMs ?? request.timings.totalMs;
+}
+
+export function dedupeRequestsByUrl(requests: RequestRecord[]): RequestRecord[] {
+  const seen = new Set<string>();
+  const result: RequestRecord[] = [];
+  for (const request of requests) {
+    if (seen.has(request.url)) continue;
+    seen.add(request.url);
+    result.push(request);
+  }
+  return result;
+}
+
+export function scopeRequestsForChart(
+  requests: RequestRecord[],
+  resourceFilter: ChartResourceFilter,
+  uniqueOnly: boolean,
+): RequestRecord[] {
+  const filtered = filterRequestsForChart(requests, resourceFilter);
+  if (!uniqueOnly) return filtered;
+  return dedupeRequestsByUrl(filtered);
+}
+
+export function buildDerivedRunSeriesFromRequests(
+  run: ComparisonRunSeries,
+  requests: RequestRecord[],
+): ComparisonRunSeries {
+  const uniqueRequests = dedupeRequestsByUrl(requests);
+  const latencies = uniqueRequests.map(requestLatencyMs);
+  const histogramsByResourceType = Object.fromEntries(
+    RESOURCE_TYPES.map((type) => {
+      const typeRequests = dedupeRequestsByUrl(requests.filter((request) => request.resourceType === type));
+      return [type, buildHistogram(typeRequests.map(requestLatencyMs))];
+    }),
+  ) as Record<ResourceType, HistogramBucket[]>;
+  const percentilesByResourceType = Object.fromEntries(
+    RESOURCE_TYPES.map((type) => {
+      const typeRequests = dedupeRequestsByUrl(requests.filter((request) => request.resourceType === type));
+      return [type, computePercentiles(typeRequests.map(requestLatencyMs))];
+    }),
+  ) as Record<ResourceType, ComparisonRunSeries["percentiles"]>;
+  const assetRequests = dedupeRequestsByUrl(
+    requests.filter((request) => ASSET_RESOURCE_TYPES.includes(request.resourceType)),
+  );
+
+  return {
+    ...run,
+    histogram: buildHistogram(latencies),
+    histogramsByResourceType,
+    percentiles: computePercentiles(latencies),
+    percentilesByResourceType,
+    assetPercentiles: computePercentiles(assetRequests.map(requestLatencyMs)),
+  };
 }
 
 export function reportMatchesComparisonState(
@@ -422,8 +485,9 @@ export function buildTimelineRunSeries(
   run: ComparisonRunSeries,
   requests: RequestRecord[],
   resourceFilter: ChartResourceFilter,
+  uniqueOnly = false,
 ): TimelineRunSeries {
-  const filtered = filterRequestsForChart(requests, resourceFilter);
+  const filtered = scopeRequestsForChart(requests, resourceFilter, uniqueOnly);
   if (filtered.length === 0) {
     return {
       runId: run.runId,

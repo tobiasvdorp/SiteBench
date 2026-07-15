@@ -19,10 +19,12 @@ type CompareRunSelectorProps = {
   selectedRunIds: string[];
   baselineRunId: string | null;
   resourceFilter: ChartResourceFilter;
+  uniqueRequests: boolean;
   isComparableRun: (run: Run) => boolean;
   onSelectedRunIdsChange: (runIds: string[]) => void;
   onBaselineChange: (runId: string) => void;
   onResourceFilterChange: (filter: ChartResourceFilter) => void;
+  onUniqueRequestsChange: (uniqueOnly: boolean) => void;
 };
 
 function CompareRunSelector({
@@ -30,10 +32,12 @@ function CompareRunSelector({
   selectedRunIds,
   baselineRunId,
   resourceFilter,
+  uniqueRequests,
   isComparableRun,
   onSelectedRunIdsChange,
   onBaselineChange,
   onResourceFilterChange,
+  onUniqueRequestsChange,
 }: CompareRunSelectorProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -167,7 +171,7 @@ function CompareRunSelector({
 
       <div className="space-y-1 sm:w-40">
         <Label className="text-[0.65rem] font-medium uppercase tracking-widest text-muted-foreground">
-          Requests
+          Request type
         </Label>
         <Select value={resourceFilter} onValueChange={(value) => onResourceFilterChange(value as ChartResourceFilter)}>
           <SelectTrigger aria-label="Chart resource filter">
@@ -181,6 +185,17 @@ function CompareRunSelector({
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="flex h-9 items-center gap-2 self-end">
+        <Checkbox
+          id="compare-unique-requests"
+          checked={uniqueRequests}
+          onCheckedChange={(checked) => onUniqueRequestsChange(checked === true)}
+        />
+        <Label htmlFor="compare-unique-requests" className="font-normal">
+          Unique requests
+        </Label>
       </div>
     </div>
   );

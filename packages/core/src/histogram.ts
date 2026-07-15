@@ -120,6 +120,40 @@ export function shouldShowAxisTick(bucketMinMs: number, tickIntervalMs: number):
   return bucketMinMs % tickIntervalMs === 0;
 }
 
+export function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, Math.min(index, sorted.length - 1))];
+}
+
+export function computePercentiles(values: number[]) {
+  return {
+    p50: percentile(values, 50),
+    p75: percentile(values, 75),
+    p90: percentile(values, 90),
+    p95: percentile(values, 95),
+    p99: percentile(values, 99),
+  };
+}
+
+export function buildHistogram(values: number[]): HistogramBucket[] {
+  const bucketCount = Math.ceil(HISTOGRAM_MAX_MS / HISTOGRAM_BUCKET_SIZE_MS);
+  const buckets: HistogramBucket[] = Array.from({ length: bucketCount }, (_, i) => ({
+    minMs: i * HISTOGRAM_BUCKET_SIZE_MS,
+    maxMs: (i + 1) * HISTOGRAM_BUCKET_SIZE_MS,
+    count: 0,
+  }));
+
+  for (const value of values) {
+    const clamped = Math.min(value, HISTOGRAM_MAX_MS - 1);
+    const index = Math.floor(clamped / HISTOGRAM_BUCKET_SIZE_MS);
+    buckets[index].count += 1;
+  }
+
+  return buckets;
+}
+
 const PERCENTILE_TARGETS = {
   p50: 50,
   p75: 75,

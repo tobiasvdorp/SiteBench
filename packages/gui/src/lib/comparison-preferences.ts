@@ -5,6 +5,7 @@ const CHART_RANGE_MIN_KEY = "sitebench.comparison.chartRangeMinMs";
 const CHART_RANGE_MAX_KEY = "sitebench.comparison.chartRangeMaxMs";
 const CHART_VALUE_MODE_KEY = "sitebench.comparison.chartValueMode";
 const CHART_RESOURCE_FILTER_KEY = "sitebench.comparison.chartResourceFilter";
+const UNIQUE_REQUESTS_KEY = "sitebench.comparison.uniqueRequests";
 const SELECTED_RUN_IDS_KEY = "sitebench.comparison.selectedRunIds";
 const BASELINE_KEY_PREFIX = "sitebench.comparison.baseline.";
 
@@ -118,6 +119,14 @@ export function getStoredChartResourceFilter(): ChartResourceFilter {
 
 export function setStoredChartResourceFilter(filter: ChartResourceFilter) {
   localStorage.setItem(CHART_RESOURCE_FILTER_KEY, filter);
+}
+
+export function getStoredUniqueRequests(): boolean {
+  return localStorage.getItem(UNIQUE_REQUESTS_KEY) === "true";
+}
+
+export function setStoredUniqueRequests(uniqueOnly: boolean) {
+  localStorage.setItem(UNIQUE_REQUESTS_KEY, String(uniqueOnly));
 }
 
 export function getStoredSelectedRunIds(): string[] {

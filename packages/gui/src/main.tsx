@@ -37,9 +37,11 @@ import {
   getStoredBaseline,
   getStoredChartResourceFilter,
   getStoredSelectedRunIds,
+  getStoredUniqueRequests,
   setStoredBaseline,
   setStoredChartResourceFilter,
   setStoredSelectedRunIds,
+  setStoredUniqueRequests,
   type ChartResourceFilter,
 } from "./lib/comparison-preferences";
 import { resolveBaselineRunId, reportMatchesComparisonState } from "./lib/comparison-utils";
@@ -94,6 +96,7 @@ function App() {
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>(() => getStoredSelectedRunIds());
   const [baselineRunId, setBaselineRunId] = useState<string | null>(null);
   const [resourceFilter, setResourceFilter] = useState<ChartResourceFilter>(() => getStoredChartResourceFilter());
+  const [uniqueRequests, setUniqueRequests] = useState(() => getStoredUniqueRequests());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [stoppingRun, setStoppingRun] = useState(false);
@@ -372,6 +375,11 @@ function App() {
     setStoredChartResourceFilter(filter);
   };
 
+  const handleUniqueRequestsChange = (uniqueOnly: boolean) => {
+    setUniqueRequests(uniqueOnly);
+    setStoredUniqueRequests(uniqueOnly);
+  };
+
   const handleCompare = () => {
     navigateToTab("compare");
   };
@@ -526,10 +534,12 @@ function App() {
                 selectedRunIds={selectedRunIds}
                 baselineRunId={baselineRunId}
                 resourceFilter={resourceFilter}
+                uniqueRequests={uniqueRequests}
                 isComparableRun={isComparableRun}
                 onSelectedRunIdsChange={setSelectedRunIds}
                 onBaselineChange={handleBaselineChange}
                 onResourceFilterChange={handleResourceFilterChange}
+                onUniqueRequestsChange={handleUniqueRequestsChange}
               />
 
               {reportIsDirty && activeReport && (
@@ -545,6 +555,7 @@ function App() {
                   comparison={comparison}
                   baselineRunId={baselineRunId}
                   resourceFilter={resourceFilter}
+                  uniqueRequests={uniqueRequests}
                 />
               ) : selectedRunIds.length === 0 ? (
                 <EmptyState
