@@ -358,7 +358,8 @@ export function formatDistributionAxisValue(value: number): string {
 }
 
 export type TimelinePoint = {
-  elapsedMs: number;
+  progress: number;
+  rawElapsedMs: number;
   responseMs: number;
 };
 
@@ -370,7 +371,28 @@ export type TimelineRunSeries = {
   points: TimelinePoint[];
 };
 
-const TIMELINE_MAX_POINTS = 4000;
+const TIMELINE_BUCKET_COUNT = 50;
+
+export { TIMELINE_BUCKET_COUNT };
+
+export type TimelineTrendBucket = {
+  p50: number;
+  p95: number;
+  count: number;
+};
+
+export type TimelineTrendRow = {
+  progress: number;
+  buckets: Record<string, TimelineTrendBucket | undefined>;
+  [runName: string]: number | string | Record<string, TimelineTrendBucket | undefined> | null | undefined;
+};
+
+export type TimelineTrendChart = {
+  data: TimelineTrendRow[];
+  runs: Pick<TimelineRunSeries, "runId" | "runName" | "color">[];
+  maxResponseMs: number;
+  progressTicks: number[];
+};
 
 export function filterRequestsForChart(
   requests: RequestRecord[],
@@ -381,12 +403,6 @@ export function filterRequestsForChart(
     return requests.filter((request) => ASSET_RESOURCE_TYPES.includes(request.resourceType));
   }
   return requests.filter((request) => request.resourceType === resourceFilter);
-}
-
-export function downsampleTimelinePoints(points: TimelinePoint[], maxPoints = TIMELINE_MAX_POINTS): TimelinePoint[] {
-  if (points.length <= maxPoints) return points;
-  const step = Math.ceil(points.length / maxPoints);
-  return points.filter((_, index) => index % step === 0);
 }
 
 export function buildTimelineRunSeries(
@@ -406,13 +422,16 @@ export function buildTimelineRunSeries(
   }
 
   const firstRequestMs = new Date(filtered[0].createdAt).getTime();
-  const points = downsampleTimelinePoints(
-    filtered.map((request) => ({
-      elapsedMs: Math.max(0, new Date(request.createdAt).getTime() - firstRequestMs),
-      responseMs: request.timings.totalMs,
-    })),
-  );
-  const durationMs = points.reduce((max, point) => Math.max(max, point.elapsedMs), 0);
+  const rawPoints = filtered.map((request) => ({
+    elapsedMs: Math.max(0, new Date(request.createdAt).getTime() - firstRequestMs),
+    responseMs: request.timings.totalMs,
+  }));
+  const durationMs = rawPoints.reduce((max, point) => Math.max(max, point.elapsedMs), 0);
+  const points = rawPoints.map((point) => ({
+    progress: durationMs > 0 ? (point.elapsedMs / durationMs) * 100 : 0,
+    rawElapsedMs: point.elapsedMs,
+    responseMs: point.responseMs,
+  }));
 
   return {
     runId: run.runId,
@@ -436,44 +455,75 @@ export function formatElapsedAxisTick(elapsedMs: number): string {
   return `${Math.round(elapsedMs)}ms`;
 }
 
-export function resolveTimelineTickInterval(maxElapsedMs: number): number {
-  if (maxElapsedMs <= 10_000) return axisTickIntervalMs(maxElapsedMs);
-  if (maxElapsedMs <= 60_000) return 10_000;
-  if (maxElapsedMs <= 300_000) return 30_000;
-  if (maxElapsedMs <= 1_800_000) return 60_000;
-  return 300_000;
+export function formatTimelineProgressTick(progress: number): string {
+  if (progress === 0) return "0%";
+  if (progress === 100) return "100%";
+  return `${Math.round(progress)}%`;
 }
 
-export function resolveTimelineAxisTicks(maxElapsedMs: number): number[] {
-  if (maxElapsedMs <= 0) return [0];
+function timelineBucketIndex(progress: number, bucketCount = TIMELINE_BUCKET_COUNT): number {
+  if (progress >= 100) return bucketCount - 1;
+  return Math.min(bucketCount - 1, Math.floor((progress / 100) * bucketCount));
+}
 
-  const tickIntervalMs = resolveTimelineTickInterval(maxElapsedMs);
-  const roundedMaxMs = Math.max(tickIntervalMs, Math.ceil(maxElapsedMs / tickIntervalMs) * tickIntervalMs);
-  const ticks: number[] = [];
+function timelinePercentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, Math.min(index, sorted.length - 1))];
+}
 
-  for (let elapsedMs = 0; elapsedMs <= roundedMaxMs; elapsedMs += tickIntervalMs) {
-    ticks.push(elapsedMs);
+function timelinePercentiles(values: number[]) {
+  return {
+    p50: timelinePercentile(values, 50),
+    p95: timelinePercentile(values, 95),
+  };
+}
+
+export function buildTimelineTrendChart(series: TimelineRunSeries[]): TimelineTrendChart {
+  if (series.length === 0) {
+    return { data: [], runs: [], maxResponseMs: 1, progressTicks: [0, 25, 50, 75, 100] };
   }
 
-  return ticks;
-}
+  const data: TimelineTrendRow[] = Array.from({ length: TIMELINE_BUCKET_COUNT }, (_, index) => ({
+    progress: ((index + 0.5) / TIMELINE_BUCKET_COUNT) * 100,
+    buckets: {},
+  }));
 
-export function buildTimelineChartMeta(series: TimelineRunSeries[]) {
-  const pointElapsedMs = series.flatMap((entry) => entry.points.map((point) => point.elapsedMs));
-  const maxElapsedMs = pointElapsedMs.length > 0 ? Math.max(...pointElapsedMs) : 0;
-  const tickIntervalMs = resolveTimelineTickInterval(maxElapsedMs);
-  const paddedMaxElapsedMs = Math.max(
-    tickIntervalMs,
-    Math.ceil((maxElapsedMs * 1.02) / tickIntervalMs) * tickIntervalMs,
-  );
-  const maxResponseMs = series.reduce(
-    (max, entry) => Math.max(max, ...entry.points.map((point) => point.responseMs), 0),
-    0,
-  );
+  let maxResponseMs = 0;
+
+  for (const run of series) {
+    const bucketValues = Array.from({ length: TIMELINE_BUCKET_COUNT }, () => [] as number[]);
+
+    for (const point of run.points) {
+      bucketValues[timelineBucketIndex(point.progress)].push(point.responseMs);
+    }
+
+    for (let index = 0; index < TIMELINE_BUCKET_COUNT; index += 1) {
+      const values = bucketValues[index];
+      if (values.length === 0) {
+        data[index].buckets[run.runId] = undefined;
+        data[index][run.runName] = null;
+        continue;
+      }
+
+      const percentiles = timelinePercentiles(values);
+      const bucket: TimelineTrendBucket = {
+        p50: percentiles.p50,
+        p95: percentiles.p95,
+        count: values.length,
+      };
+
+      data[index].buckets[run.runId] = bucket;
+      data[index][run.runName] = percentiles.p50;
+      maxResponseMs = Math.max(maxResponseMs, percentiles.p95);
+    }
+  }
 
   return {
-    maxElapsedMs: paddedMaxElapsedMs,
-    maxResponseMs: Math.ceil(maxResponseMs * 1.08),
-    axisTicks: resolveTimelineAxisTicks(paddedMaxElapsedMs),
+    data,
+    runs: series.map((run) => ({ runId: run.runId, runName: run.runName, color: run.color })),
+    maxResponseMs: Math.ceil(maxResponseMs * 1.08) || 1,
+    progressTicks: [0, 25, 50, 75, 100],
   };
 }

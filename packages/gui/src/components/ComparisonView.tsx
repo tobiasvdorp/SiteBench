@@ -3,10 +3,10 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ReferenceLine,
   ResponsiveContainer,
-  Scatter,
-  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
@@ -42,17 +42,19 @@ import { getRunRequests } from "@/lib/api";
 import {
   buildDistributionChartData,
   buildSummaryRuns,
-  buildTimelineChartMeta,
+  buildTimelineTrendChart,
   buildTimelineRunSeries,
   chartResourceFilterLabel,
   formatAxisTick,
   formatDistributionAxisValue,
-  formatElapsedAxisTick,
   formatSummaryDelta,
+  formatTimelineProgressTick,
   timelineResourceFilterDescription,
   resolveBaselineRunId,
   resolveEffectiveChartRange,
   type TimelineRunSeries,
+  type TimelineTrendChart,
+  TIMELINE_BUCKET_COUNT,
   withBaseline,
 } from "@/lib/comparison-utils";
 
@@ -122,29 +124,53 @@ function DistributionTooltip({ active, payload, label, percentileMarkers }: Dist
   );
 }
 
-type TimelineTooltipProps = {
+type TimelineTrendTooltipProps = {
   active?: boolean;
   payload?: readonly {
-    payload?: { elapsedMs?: number; responseMs?: number };
+    name?: string | number;
+    value?: number | string | (string | number)[];
+    color?: string;
+    payload?: TimelineTrendChart["data"][number];
   }[];
-  runName?: string;
+  label?: string | number;
+  runs: TimelineTrendChart["runs"];
 };
 
-function TimelineTooltip({ active, payload, runName }: TimelineTooltipProps) {
+function TimelineTrendTooltip({ active, payload, label, runs }: TimelineTrendTooltipProps) {
   if (!active || !payload?.length) return null;
 
-  const point = payload[0]?.payload;
-  if (!point || point.elapsedMs === undefined || point.responseMs === undefined) return null;
+  const row = payload[0]?.payload;
+  const progress = row?.progress ?? Number(label ?? 0);
+  const entries = runs.flatMap((run) => {
+    const bucket = row?.buckets[run.runId];
+    if (!bucket) return [];
+    return [{ run, bucket }];
+  });
 
   return (
     <div className="rounded-lg border border-border/60 bg-popover px-3 py-2.5 text-popover-foreground shadow-lg">
-      {runName && <p className="mb-1 font-medium">{runName}</p>}
-      <p className="text-sm">
-        Elapsed: <Metric className="font-semibold">{formatElapsedAxisTick(point.elapsedMs)}</Metric>
-      </p>
-      <p className="text-sm">
-        Response: <Metric unit="ms" className="font-semibold">{point.responseMs.toFixed(1)}</Metric>
-      </p>
+      <p className="mb-2 font-medium">{formatTimelineProgressTick(progress)} run progress</p>
+      {entries.length > 0 ? (
+        <ul className="space-y-1.5">
+          {entries.map(({ run, bucket }) => (
+            <li key={run.runId} className="text-sm">
+              <span className="font-medium" style={{ color: run.color }}>
+                {run.runName}
+              </span>
+              <div className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
+                <p>
+                  p50 <Metric className="text-xs font-semibold text-popover-foreground">{bucket.p50.toFixed(1)}</Metric> ms
+                  {" · p95 "}
+                  <Metric className="text-xs font-semibold text-popover-foreground">{bucket.p95.toFixed(1)}</Metric> ms
+                </p>
+                <p>{bucket.count} request{bucket.count === 1 ? "" : "s"} in bucket</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-muted-foreground">No requests in this window</p>
+      )}
     </div>
   );
 }
@@ -266,7 +292,7 @@ export function ComparisonView({ comparison, baselineRunId, resourceFilter }: Pr
     [runs, timelineByRunId],
   );
 
-  const timelineChart = useMemo(() => buildTimelineChartMeta(timelineRuns), [timelineRuns]);
+  const timelineTrendChart = useMemo(() => buildTimelineTrendChart(timelineRuns), [timelineRuns]);
 
   if (comparison.runs.length === 0) {
     return (
@@ -409,7 +435,7 @@ export function ComparisonView({ comparison, baselineRunId, resourceFilter }: Pr
         <CardHeader>
           <SectionHeader
             title="Response time timeline"
-            description={`Each point is one ${timelineResourceFilterDescription(resourceFilter)} plotted from the first matching request in each run. Compare how response times evolve across the active crawl period.`}
+            description={`p50 response time per ${timelineResourceFilterDescription(resourceFilter)} across run progress (0–100%). Each run is split into ${TIMELINE_BUCKET_COUNT} time buckets so you can compare trends without individual request noise.`}
           />
         </CardHeader>
         <CardContent className="space-y-4">
@@ -428,58 +454,61 @@ export function ComparisonView({ comparison, baselineRunId, resourceFilter }: Pr
           ) : (
             <div className="min-h-[320px] w-full rounded-lg border border-border/40 bg-surface-elevated/30 p-2">
               <ResponsiveContainer width="100%" height={340}>
-                <ScatterChart margin={{ top: 8, right: 12, left: 0, bottom: 20 }}>
-                  <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" />
+                <LineChart data={timelineTrendChart.data} margin={{ top: 8, right: 12, left: 0, bottom: 20 }}>
+                  <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     type="number"
-                    dataKey="elapsedMs"
-                    name="Elapsed"
-                    domain={[0, timelineChart.maxElapsedMs || "auto"]}
-                    ticks={timelineChart.axisTicks}
+                    dataKey="progress"
+                    domain={[0, 100]}
+                    allowDataOverflow={false}
+                    allowDecimals={false}
+                    ticks={timelineTrendChart.progressTicks}
                     tick={{ fontSize: 10, fill: CHART_TICK_COLOR, fontFamily: "var(--font-mono)" }}
-                    tickFormatter={(value) => formatElapsedAxisTick(Number(value))}
+                    tickFormatter={(value) => formatTimelineProgressTick(Number(value))}
                     axisLine={{ stroke: CHART_GRID_COLOR }}
                     tickLine={{ stroke: CHART_GRID_COLOR }}
                   />
                   <YAxis
                     type="number"
-                    dataKey="responseMs"
-                    name="Response"
-                    domain={[0, timelineChart.maxResponseMs || "auto"]}
+                    domain={[0, timelineTrendChart.maxResponseMs]}
+                    allowDataOverflow={false}
                     tick={{ fill: CHART_TICK_COLOR, fontSize: 10, fontFamily: "var(--font-mono)" }}
                     tickFormatter={(value) => `${Math.round(Number(value))}ms`}
                     axisLine={{ stroke: CHART_GRID_COLOR }}
                     tickLine={{ stroke: CHART_GRID_COLOR }}
                   />
                   <Tooltip
-                    cursor={{ strokeDasharray: "3 3" }}
+                    cursor={{ stroke: "oklch(0.78 0.14 195 / 35%)", strokeWidth: 1 }}
                     content={(props) => (
-                      <TimelineTooltip
+                      <TimelineTrendTooltip
                         active={props.active}
                         payload={props.payload}
-                        runName={props.payload?.[0]?.name ? String(props.payload[0].name) : undefined}
+                        label={props.label}
+                        runs={timelineTrendChart.runs}
                       />
                     )}
                   />
-                  {timelineRuns.map((series) => (
-                    <Scatter
-                      key={series.runId}
-                      name={series.runName}
-                      data={series.points}
-                      fill={series.color}
-                      fillOpacity={0.45}
-                      line={false}
+                  {timelineTrendChart.runs.map((run) => (
+                    <Line
+                      key={run.runId}
+                      type="monotone"
+                      dataKey={run.runName}
+                      stroke={run.color}
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls={false}
+                      activeDot={{ r: 4, strokeWidth: 0 }}
                       animationDuration={600}
                       animationEasing="ease-out"
                     />
                   ))}
-                </ScatterChart>
+                </LineChart>
               </ResponsiveContainer>
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            X-axis shows elapsed time from each run&apos;s first matching request and auto-scales to the visible data.
-            Y-axis shows total response time per request. Large runs are downsampled for performance while preserving the overall trend.
+            Lines show the p50 response time within each {Math.round(100 / TIMELINE_BUCKET_COUNT)}% slice of run progress. Hover a point for p95 and request count per run.
+            All requests are used for bucketing, so large runs stay accurate without plotting every dot.
           </p>
         </CardContent>
       </Card>
