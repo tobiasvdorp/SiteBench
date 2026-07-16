@@ -52,6 +52,7 @@ import {
   templateToForm,
   type RunSettingsFormState,
 } from "./lib/run-settings-preferences";
+import { getNextRerunName, snapshotToCrawlConfig } from "./lib/run-utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
@@ -101,6 +102,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [stoppingRun, setStoppingRun] = useState(false);
+  const [rerunningRun, setRerunningRun] = useState(false);
   const runLauncherRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -345,6 +347,28 @@ function App() {
       await refreshRuns();
     } catch (err) {
       setError(formatApiError(err));
+    }
+  };
+
+  const handleRerun = async (run: Run) => {
+    setError(null);
+    setNotice(null);
+    setRerunningRun(true);
+    const runName = getNextRerunName(run.name, runs.map((item) => item.name));
+    const config = snapshotToCrawlConfig(run.configSnapshot);
+    try {
+      const newRun = await startRun({ runName, overrides: config });
+      setActiveRunId(newRun.id);
+      setDetailRunId(newRun.id);
+      setProgress({ pagesFetched: 0, pagesDiscovered: 0, requestsCompleted: 0, errors: 0, queueSize: 0 });
+      setRecentRequests([]);
+      navigateToTab("runs");
+      await refreshRuns();
+      setNotice(`Started re-run "${runName}".`);
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setRerunningRun(false);
     }
   };
 
@@ -597,6 +621,11 @@ function App() {
         recentRequests={recentRequests}
         onStop={() => void handleStopRun()}
         stopping={stoppingRun}
+        onRerun={() => {
+          if (!detailRun) return;
+          void handleRerun(detailRun);
+        }}
+        rerunning={rerunningRun}
       />
     </AppShell>
   );

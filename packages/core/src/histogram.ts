@@ -52,6 +52,31 @@ export function computeAutoChartMaxMs(
   return Math.min(Math.max(paddedMaxMs, nextBucketMaxMs), histogramMaxMs);
 }
 
+export function countRequestsBeyondMs(histograms: HistogramBucket[][], maxMs: number): number {
+  if (histograms.length === 0) return 0;
+
+  const bucketCount = histograms[0]?.length ?? 0;
+  const { endIndex } = bucketIndicesInRange(0, maxMs, HISTOGRAM_BUCKET_SIZE_MS, bucketCount);
+
+  return histograms.reduce((total, buckets) => {
+    let count = 0;
+    for (let index = endIndex + 1; index < buckets.length; index += 1) {
+      count += buckets[index]?.count ?? 0;
+    }
+    return total + count;
+  }, 0);
+}
+
+export function maxLatencyMsAcross(histograms: HistogramBucket[][]): number {
+  let maxMs = 0;
+  for (const buckets of histograms) {
+    const lastIndex = lastNonZeroBucketIndex(buckets);
+    if (lastIndex < 0) continue;
+    maxMs = Math.max(maxMs, buckets[lastIndex]?.maxMs ?? 0);
+  }
+  return maxMs;
+}
+
 export function validateChartRange(
   minMs: number,
   maxMs: number,

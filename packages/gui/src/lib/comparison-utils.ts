@@ -5,11 +5,13 @@ import {
   bucketIndicesInRange,
   combineHistograms,
   computeAutoChartMaxMs,
+  countRequestsBeyondMs,
   histogramBucketPercentages,
   histogramTotalCount,
   HISTOGRAM_BUCKET_SIZE_MS,
   HISTOGRAM_MAX_MS,
   lastNonZeroBucketIndexAcross,
+  maxLatencyMsAcross,
   shouldShowAxisTick,
   validateChartRange,
 } from "@sitebench/core/histogram";
@@ -263,7 +265,41 @@ export type EffectiveChartRange = {
   mode: ChartRangeMode;
   rangeError: string | null;
   isFallback: boolean;
+  fullMaxMs: number;
+  truncatedRequestCount: number;
+  tailMaxMs: number;
+  capPercentile: "p95" | "p99" | null;
 };
+
+function resolveFullChartMaxMs(histograms: HistogramBucket[][]): number {
+  const lastIndex = lastNonZeroBucketIndexAcross(histograms);
+  if (lastIndex < 0) return HISTOGRAM_MAX_MS;
+
+  return computeAutoChartMaxMs(
+    histograms[0]?.[lastIndex]?.maxMs ?? 0,
+    HISTOGRAM_BUCKET_SIZE_MS,
+    HISTOGRAM_MAX_MS,
+  );
+}
+
+function resolvePercentileCappedMaxMs(
+  visibleRuns: ComparisonRunSeries[],
+  resourceFilter: ChartResourceFilter,
+  capPercentile: "p95" | "p99",
+  fullMaxMs: number,
+): number {
+  const capMs = visibleRuns.reduce((max, run) => {
+    const value = resolvePercentilesForFilter(run, resourceFilter)[capPercentile];
+    return Math.max(max, value);
+  }, 0);
+
+  if (capMs <= 0) return fullMaxMs;
+
+  return Math.min(
+    fullMaxMs,
+    computeAutoChartMaxMs(capMs, HISTOGRAM_BUCKET_SIZE_MS, HISTOGRAM_MAX_MS),
+  );
+}
 
 export function resolveEffectiveChartRange(
   visibleRuns: ComparisonRunSeries[],
@@ -273,45 +309,85 @@ export function resolveEffectiveChartRange(
   resourceFilter: ChartResourceFilter = "all",
 ): EffectiveChartRange {
   const histograms = visibleRuns.map((run) => resolveHistogramForFilter(run, resourceFilter));
-  const lastIndex = lastNonZeroBucketIndexAcross(histograms);
+  const fullMaxMs = resolveFullChartMaxMs(histograms);
   const autoMinMs = 0;
-  const autoMaxMs =
-    lastIndex < 0
-      ? HISTOGRAM_MAX_MS
-      : computeAutoChartMaxMs(
-          histograms[0]?.[lastIndex]?.maxMs ?? 0,
-          HISTOGRAM_BUCKET_SIZE_MS,
-          HISTOGRAM_MAX_MS,
-        );
 
-  if (rangeMode === "auto") {
-    return { minMs: autoMinMs, maxMs: autoMaxMs, mode: "auto", rangeError: null, isFallback: false };
-  }
+  if (rangeMode === "custom") {
+    const validation = validateChartRange(
+      customMinMs,
+      customMaxMs,
+      HISTOGRAM_MAX_MS,
+      HISTOGRAM_BUCKET_SIZE_MS,
+    );
 
-  const validation = validateChartRange(
-    customMinMs,
-    customMaxMs,
-    HISTOGRAM_MAX_MS,
-    HISTOGRAM_BUCKET_SIZE_MS,
-  );
+    if (!validation.valid) {
+      return {
+        minMs: autoMinMs,
+        maxMs: fullMaxMs,
+        mode: "custom",
+        rangeError: validation.error,
+        isFallback: true,
+        fullMaxMs,
+        truncatedRequestCount: 0,
+        tailMaxMs: 0,
+        capPercentile: null,
+      };
+    }
 
-  if (!validation.valid) {
+    const maxMs = validation.maxMs;
+    const truncatedRequestCount =
+      maxMs < fullMaxMs ? countRequestsBeyondMs(histograms, maxMs) : 0;
+
     return {
-      minMs: autoMinMs,
-      maxMs: autoMaxMs,
+      minMs: validation.minMs,
+      maxMs,
       mode: "custom",
-      rangeError: validation.error,
-      isFallback: true,
+      rangeError: null,
+      isFallback: false,
+      fullMaxMs,
+      truncatedRequestCount,
+      tailMaxMs: truncatedRequestCount > 0 ? maxLatencyMsAcross(histograms) : 0,
+      capPercentile: null,
     };
   }
 
+  const capPercentile = rangeMode === "p95" || rangeMode === "p99" ? rangeMode : null;
+  const maxMs =
+    capPercentile === null
+      ? fullMaxMs
+      : resolvePercentileCappedMaxMs(visibleRuns, resourceFilter, capPercentile, fullMaxMs);
+  const truncatedRequestCount =
+    maxMs < fullMaxMs ? countRequestsBeyondMs(histograms, maxMs) : 0;
+
   return {
-    minMs: validation.minMs,
-    maxMs: validation.maxMs,
-    mode: "custom",
+    minMs: autoMinMs,
+    maxMs,
+    mode: rangeMode,
     rangeError: null,
     isFallback: false,
+    fullMaxMs,
+    truncatedRequestCount,
+    tailMaxMs: truncatedRequestCount > 0 ? maxLatencyMsAcross(histograms) : 0,
+    capPercentile,
   };
+}
+
+export function formatTruncatedRangeNote(
+  count: number,
+  capPercentile: "p95" | "p99",
+  tailMaxMs: number,
+): string | null {
+  if (count <= 0) return null;
+
+  const tailLabel =
+    tailMaxMs >= 1000 && tailMaxMs % 1000 === 0
+      ? `${tailMaxMs / 1000}s`
+      : tailMaxMs >= 1000
+        ? `${(tailMaxMs / 1000).toFixed(1)}s`
+        : `${tailMaxMs}ms`;
+  const requestLabel = count === 1 ? "request" : "requests";
+
+  return `${count} ${requestLabel} beyond ${capPercentile} (max ${tailLabel}) — switch to Full range to see the tail.`;
 }
 
 export function formatChartRangeLabel(minMs: number, maxMs: number): string {
@@ -434,9 +510,10 @@ export function formatDistributionAxisValue(value: number): string {
 }
 
 export type TimelinePoint = {
-  progress: number;
-  rawElapsedMs: number;
+  elapsedMs: number;
   responseMs: number;
+  url: string;
+  resourceType: ResourceType;
 };
 
 export type TimelineRunSeries = {
@@ -447,27 +524,11 @@ export type TimelineRunSeries = {
   points: TimelinePoint[];
 };
 
-const TIMELINE_BUCKET_COUNT = 50;
-
-export { TIMELINE_BUCKET_COUNT };
-
-export type TimelineTrendBucket = {
-  p50: number;
-  p95: number;
-  count: number;
-};
-
-export type TimelineTrendRow = {
-  progress: number;
-  buckets: Record<string, TimelineTrendBucket | undefined>;
-  [runName: string]: number | string | Record<string, TimelineTrendBucket | undefined> | null | undefined;
-};
-
-export type TimelineTrendChart = {
-  data: TimelineTrendRow[];
-  runs: Pick<TimelineRunSeries, "runId" | "runName" | "color">[];
+export type TimelineScatterChart = {
+  runs: TimelineRunSeries[];
   maxResponseMs: number;
-  progressTicks: number[];
+  maxElapsedMs: number;
+  elapsedTicks: number[];
 };
 
 export function filterRequestsForChart(
@@ -499,16 +560,13 @@ export function buildTimelineRunSeries(
   }
 
   const firstRequestMs = new Date(filtered[0].createdAt).getTime();
-  const rawPoints = filtered.map((request) => ({
+  const points = filtered.map((request) => ({
     elapsedMs: Math.max(0, new Date(request.createdAt).getTime() - firstRequestMs),
     responseMs: request.timings.totalMs,
+    url: request.url,
+    resourceType: request.resourceType,
   }));
-  const durationMs = rawPoints.reduce((max, point) => Math.max(max, point.elapsedMs), 0);
-  const points = rawPoints.map((point) => ({
-    progress: durationMs > 0 ? (point.elapsedMs / durationMs) * 100 : 0,
-    rawElapsedMs: point.elapsedMs,
-    responseMs: point.responseMs,
-  }));
+  const durationMs = points.reduce((max, point) => Math.max(max, point.elapsedMs), 0);
 
   return {
     runId: run.runId,
@@ -532,75 +590,33 @@ export function formatElapsedAxisTick(elapsedMs: number): string {
   return `${Math.round(elapsedMs)}ms`;
 }
 
-export function formatTimelineProgressTick(progress: number): string {
-  if (progress === 0) return "0%";
-  if (progress === 100) return "100%";
-  return `${Math.round(progress)}%`;
+function timelineElapsedTicks(maxElapsedMs: number): number[] {
+  return [0, 0.25, 0.5, 0.75, 1].map((fraction) => Math.round(maxElapsedMs * fraction));
 }
 
-function timelineBucketIndex(progress: number, bucketCount = TIMELINE_BUCKET_COUNT): number {
-  if (progress >= 100) return bucketCount - 1;
-  return Math.min(bucketCount - 1, Math.floor((progress / 100) * bucketCount));
-}
-
-function timelinePercentile(values: number[], p: number): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.ceil((p / 100) * sorted.length) - 1;
-  return sorted[Math.max(0, Math.min(index, sorted.length - 1))];
-}
-
-function timelinePercentiles(values: number[]) {
-  return {
-    p50: timelinePercentile(values, 50),
-    p95: timelinePercentile(values, 95),
-  };
-}
-
-export function buildTimelineTrendChart(series: TimelineRunSeries[]): TimelineTrendChart {
+export function buildTimelineScatterChart(series: TimelineRunSeries[]): TimelineScatterChart {
   if (series.length === 0) {
-    return { data: [], runs: [], maxResponseMs: 1, progressTicks: [0, 25, 50, 75, 100] };
+    return {
+      runs: [],
+      maxResponseMs: 1,
+      maxElapsedMs: 1,
+      elapsedTicks: [0, 1],
+    };
   }
 
-  const data: TimelineTrendRow[] = Array.from({ length: TIMELINE_BUCKET_COUNT }, (_, index) => ({
-    progress: ((index + 0.5) / TIMELINE_BUCKET_COUNT) * 100,
-    buckets: {},
-  }));
-
+  const maxElapsedMs = Math.max(...series.map((run) => run.durationMs), 0) || 1;
   let maxResponseMs = 0;
 
   for (const run of series) {
-    const bucketValues = Array.from({ length: TIMELINE_BUCKET_COUNT }, () => [] as number[]);
-
     for (const point of run.points) {
-      bucketValues[timelineBucketIndex(point.progress)].push(point.responseMs);
-    }
-
-    for (let index = 0; index < TIMELINE_BUCKET_COUNT; index += 1) {
-      const values = bucketValues[index];
-      if (values.length === 0) {
-        data[index].buckets[run.runId] = undefined;
-        data[index][run.runName] = null;
-        continue;
-      }
-
-      const percentiles = timelinePercentiles(values);
-      const bucket: TimelineTrendBucket = {
-        p50: percentiles.p50,
-        p95: percentiles.p95,
-        count: values.length,
-      };
-
-      data[index].buckets[run.runId] = bucket;
-      data[index][run.runName] = percentiles.p50;
-      maxResponseMs = Math.max(maxResponseMs, percentiles.p95);
+      maxResponseMs = Math.max(maxResponseMs, point.responseMs);
     }
   }
 
   return {
-    data,
-    runs: series.map((run) => ({ runId: run.runId, runName: run.runName, color: run.color })),
+    runs: series,
     maxResponseMs: Math.ceil(maxResponseMs * 1.08) || 1,
-    progressTicks: [0, 25, 50, 75, 100],
+    maxElapsedMs,
+    elapsedTicks: timelineElapsedTicks(maxElapsedMs),
   };
 }

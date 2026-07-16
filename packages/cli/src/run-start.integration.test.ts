@@ -60,8 +60,8 @@ describe("run start CLI integration", () => {
     expect(combined).toMatch(/Pages:\s+\d+\/\d+/);
     expect(combined).toMatch(/Requests:\s+\d+/);
     expect(combined).toMatch(/Status:\s+completed/);
-    expect(combined).toMatch(/Requests:\s+\d+,\s+Errors:\s+\d+,\s+Pages:\s+\d+/);
-    const summary = combined.match(/Requests:\s+(\d+),\s+Errors:\s+\d+,\s+Pages:\s+(\d+)/);
+    expect(combined).toMatch(/Requests:\s+\d+(?:\s+\(\d+ unique\))?,\s+Errors:\s+\d+,\s+Pages:\s+\d+/);
+    const summary = combined.match(/Requests:\s+(\d+)(?:\s+\(\d+ unique\))?,\s+Errors:\s+\d+,\s+Pages:\s+(\d+)/);
     expect(summary).not.toBeNull();
     expect(Number(summary![1])).toBeGreaterThan(Number(summary![2]));
     expect(combined).toMatch(/Percentiles \(ms\): p50=/);
@@ -88,7 +88,9 @@ describe("run start CLI integration", () => {
     expect(show.exitCode).toBe(0);
     expect(show.stdout).toContain(`Run: ${runName}`);
     expect(show.stdout).toContain("Status: completed");
-    expect(show.stdout).toMatch(/Requests:\s+[1-9]\d*,\s+Errors:\s+\d+,\s+Pages:\s+[1-9]\d*/);
+    expect(show.stdout).toMatch(
+      /Requests:\s+[1-9]\d*(?:\s+\(\d+ unique\))?,\s+Errors:\s+\d+,\s+Pages:\s+[1-9]\d*/,
+    );
     expect(show.stdout).toMatch(/Percentiles \(ms\): p50=/);
   });
 

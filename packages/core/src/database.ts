@@ -16,11 +16,16 @@ import type {
   TemplateInput,
   TruncationReason,
 } from "./types.js";
+import { ASSET_RESOURCE_TYPES, RESOURCE_TYPES } from "./types.js";
 import { buildHistogram, computePercentiles, createReportId, createRequestId, createRunId, createTemplateId, nowIso } from "./utils.js";
 import { DEFAULT_CRAWL_CONFIG } from "./defaults.js";
+import {
+  normalizeMaxPageVisits,
+  normalizePageCrawlBehavior,
+  syncPageInDedupeResourceTypes,
+} from "./page-crawl-behavior.js";
+import { normalizeDedupeResourceTypes } from "./validation.js";
 
-const RESOURCE_TYPES: ResourceType[] = ["page", "css", "js", "font", "image", "other"];
-const ASSET_RESOURCE_TYPES: ResourceType[] = ["css", "js", "font", "image", "other"];
 const REPORT_RESOURCE_FILTERS: ReportResourceFilter[] = [
   "all",
   "assets",
@@ -100,6 +105,8 @@ CREATE TABLE IF NOT EXISTS requests (
   total_ms REAL NOT NULL,
   byte_count INTEGER NOT NULL DEFAULT 0,
   redirect_count INTEGER NOT NULL DEFAULT 0,
+  content_type TEXT,
+  response_headers_json TEXT,
   created_at TEXT NOT NULL,
   FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
 );
@@ -157,6 +164,8 @@ type RequestRow = {
   total_ms: number;
   byte_count: number;
   redirect_count: number;
+  content_type: string | null;
+  response_headers_json: string | null;
   created_at: string;
 };
 
@@ -189,23 +198,54 @@ function rowToReport(row: ReportRow): Report {
   };
 }
 
+function normalizeRunAggregates(aggregates: Partial<RunAggregates>): RunAggregates {
+  const totalRequests = aggregates.totalRequests ?? 0;
+  return {
+    ...(aggregates as RunAggregates),
+    totalRequests,
+    uniqueRequests: aggregates.uniqueRequests ?? totalRequests,
+  };
+}
+
+function normalizeStoredCrawlConfig(
+  config: CrawlConfig & { dedupeRequests?: boolean },
+): CrawlConfig {
+  const pageCrawlBehavior = normalizePageCrawlBehavior(
+    config.pageCrawlBehavior,
+    config.dedupeResourceTypes,
+    config.dedupeRequests,
+  );
+  return {
+    ...config,
+    workerCount: config.workerCount ?? DEFAULT_CRAWL_CONFIG.workerCount,
+    timeLimitSeconds: config.timeLimitSeconds ?? null,
+    excludePagesFromResults:
+      config.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
+    pageCrawlBehavior,
+    maxPageVisits: normalizeMaxPageVisits(config.maxPageVisits, pageCrawlBehavior),
+    dedupeResourceTypes: syncPageInDedupeResourceTypes(
+      normalizeDedupeResourceTypes(config.dedupeResourceTypes, config.dedupeRequests),
+      pageCrawlBehavior,
+    ),
+  };
+}
+
 function rowToTemplate(row: TemplateRow): Template {
-  const config = JSON.parse(row.config_json) as CrawlConfig;
+  const config = JSON.parse(row.config_json) as CrawlConfig & { dedupeRequests?: boolean };
   return {
     id: row.id,
     name: row.name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    ...config,
-    workerCount: config.workerCount ?? DEFAULT_CRAWL_CONFIG.workerCount,
-    timeLimitSeconds: config.timeLimitSeconds ?? null,
-    excludePagesFromResults: config.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
-    dedupeRequests: config.dedupeRequests ?? DEFAULT_CRAWL_CONFIG.dedupeRequests,
+    ...normalizeStoredCrawlConfig(config),
   };
 }
 
 function rowToRun(row: RunRow): Run {
-  const configSnapshot = JSON.parse(row.config_snapshot_json) as RunConfigSnapshot;
+  const configSnapshot = JSON.parse(row.config_snapshot_json) as RunConfigSnapshot & {
+    dedupeRequests?: boolean;
+  };
+  const normalizedConfig = normalizeStoredCrawlConfig(configSnapshot);
   return {
     id: row.id,
     name: row.name,
@@ -213,18 +253,20 @@ function rowToRun(row: RunRow): Run {
     status: row.status,
     configSnapshot: {
       ...configSnapshot,
-      workerCount: configSnapshot.workerCount ?? DEFAULT_CRAWL_CONFIG.workerCount,
-      timeLimitSeconds: configSnapshot.timeLimitSeconds ?? null,
-      excludePagesFromResults:
-        configSnapshot.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
-      dedupeRequests: configSnapshot.dedupeRequests ?? DEFAULT_CRAWL_CONFIG.dedupeRequests,
+      ...normalizedConfig,
+      templateId: configSnapshot.templateId,
+      templateName: configSnapshot.templateName,
+      runName: configSnapshot.runName,
+      siteOrigin: configSnapshot.siteOrigin,
     },
     startedAt: row.started_at,
     completedAt: row.completed_at,
     truncated: row.truncated === 1,
     truncationReason: row.truncation_reason,
     errorSummary: row.error_summary,
-    aggregates: row.aggregates_json ? (JSON.parse(row.aggregates_json) as RunAggregates) : null,
+    aggregates: row.aggregates_json
+      ? normalizeRunAggregates(JSON.parse(row.aggregates_json) as Partial<RunAggregates>)
+      : null,
   };
 }
 
@@ -245,6 +287,8 @@ function rowToRequest(row: RequestRow): RequestRecord {
     },
     byteCount: row.byte_count,
     redirectCount: row.redirect_count,
+    contentType: row.content_type,
+    responseHeaders: row.response_headers_json ? (JSON.parse(row.response_headers_json) as RequestRecord["responseHeaders"]) : {},
     createdAt: row.created_at,
   };
 }
@@ -265,10 +309,54 @@ export class DatabaseStore {
   }
 
   private migrate() {
-    const columns = this.db.prepare("PRAGMA table_info(runs)").all() as { name: string }[];
-    const columnNames = new Set(columns.map((column) => column.name));
-    if (!columnNames.has("truncation_reason")) {
+    const runColumns = this.db.prepare("PRAGMA table_info(runs)").all() as { name: string }[];
+    const runColumnNames = new Set(runColumns.map((column) => column.name));
+    if (!runColumnNames.has("truncation_reason")) {
       this.db.exec("ALTER TABLE runs ADD COLUMN truncation_reason TEXT");
+    }
+
+    const requestColumns = this.db.prepare("PRAGMA table_info(requests)").all() as { name: string }[];
+    const requestColumnNames = new Set(requestColumns.map((column) => column.name));
+    if (!requestColumnNames.has("content_type")) {
+      this.db.exec("ALTER TABLE requests ADD COLUMN content_type TEXT");
+    }
+    if (!requestColumnNames.has("response_headers_json")) {
+      this.db.exec("ALTER TABLE requests ADD COLUMN response_headers_json TEXT");
+    }
+
+    this.backfillUniqueRequestCounts();
+  }
+
+  private backfillUniqueRequestCounts() {
+    const rows = this.db
+      .prepare("SELECT id, aggregates_json FROM runs WHERE aggregates_json IS NOT NULL")
+      .all() as { id: string; aggregates_json: string }[];
+    if (rows.length === 0) return;
+
+    const uniqueCountStmt = this.db.prepare(
+      "SELECT COUNT(DISTINCT url) AS count FROM requests WHERE run_id = ?",
+    );
+    const updateStmt = this.db.prepare("UPDATE runs SET aggregates_json = ? WHERE id = ?");
+
+    this.db.exec("BEGIN");
+    try {
+      for (const row of rows) {
+        let aggregates: Partial<RunAggregates>;
+        try {
+          aggregates = JSON.parse(row.aggregates_json) as Partial<RunAggregates>;
+        } catch {
+          continue;
+        }
+        if (typeof aggregates.uniqueRequests === "number") continue;
+
+        const countRow = uniqueCountStmt.get(row.id) as { count: number | bigint } | undefined;
+        aggregates.uniqueRequests = Number(countRow?.count ?? 0);
+        updateStmt.run(JSON.stringify(aggregates), row.id);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
   }
 
@@ -285,6 +373,10 @@ export class DatabaseStore {
   createTemplate(input: TemplateInput): Template {
     const id = createTemplateId();
     const now = nowIso();
+    const pageCrawlBehavior = normalizePageCrawlBehavior(
+      input.pageCrawlBehavior,
+      input.dedupeResourceTypes,
+    );
     const config: CrawlConfig = {
       startUrl: input.startUrl,
       rpsLimit: input.rpsLimit,
@@ -293,7 +385,12 @@ export class DatabaseStore {
       timeLimitSeconds: input.timeLimitSeconds,
       allowImages: input.allowImages,
       excludePagesFromResults: input.excludePagesFromResults,
-      dedupeRequests: input.dedupeRequests,
+      pageCrawlBehavior,
+      maxPageVisits: normalizeMaxPageVisits(input.maxPageVisits, pageCrawlBehavior),
+      dedupeResourceTypes: syncPageInDedupeResourceTypes(
+        input.dedupeResourceTypes,
+        pageCrawlBehavior,
+      ),
       respectRobots: true,
       requestTimeoutMs: input.requestTimeoutMs,
       connectTimeoutMs: input.connectTimeoutMs,
@@ -315,6 +412,10 @@ export class DatabaseStore {
     if (!existing) return null;
 
     const now = nowIso();
+    const pageCrawlBehavior = normalizePageCrawlBehavior(
+      input.pageCrawlBehavior,
+      input.dedupeResourceTypes,
+    );
     const config: CrawlConfig = {
       startUrl: input.startUrl,
       rpsLimit: input.rpsLimit,
@@ -323,7 +424,12 @@ export class DatabaseStore {
       timeLimitSeconds: input.timeLimitSeconds,
       allowImages: input.allowImages,
       excludePagesFromResults: input.excludePagesFromResults,
-      dedupeRequests: input.dedupeRequests,
+      pageCrawlBehavior,
+      maxPageVisits: normalizeMaxPageVisits(input.maxPageVisits, pageCrawlBehavior),
+      dedupeResourceTypes: syncPageInDedupeResourceTypes(
+        input.dedupeResourceTypes,
+        pageCrawlBehavior,
+      ),
       respectRobots: true,
       requestTimeoutMs: input.requestTimeoutMs,
       connectTimeoutMs: input.connectTimeoutMs,
@@ -350,7 +456,9 @@ export class DatabaseStore {
       timeLimitSeconds: existing.timeLimitSeconds,
       allowImages: existing.allowImages,
       excludePagesFromResults: existing.excludePagesFromResults,
-      dedupeRequests: existing.dedupeRequests,
+      pageCrawlBehavior: existing.pageCrawlBehavior,
+      maxPageVisits: existing.maxPageVisits,
+      dedupeResourceTypes: existing.dedupeResourceTypes,
       respectRobots: existing.respectRobots,
       requestTimeoutMs: existing.requestTimeoutMs,
       connectTimeoutMs: existing.connectTimeoutMs,
@@ -538,8 +646,9 @@ export class DatabaseStore {
       .prepare(
         `INSERT INTO requests (
           id, run_id, url, resource_type, status_code, error_class, error_message,
-          dns_ms, connect_ms, ttfb_ms, total_ms, byte_count, redirect_count, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          dns_ms, connect_ms, ttfb_ms, total_ms, byte_count, redirect_count,
+          content_type, response_headers_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -555,6 +664,8 @@ export class DatabaseStore {
         record.timings.totalMs,
         record.byteCount,
         record.redirectCount,
+        record.contentType,
+        Object.keys(record.responseHeaders).length > 0 ? JSON.stringify(record.responseHeaders) : null,
         createdAt,
       );
     return id;
@@ -590,10 +701,11 @@ export class DatabaseStore {
   computeAggregatesFromRequests(runId: string): RunAggregates {
     const rows = this.db
       .prepare(
-        `SELECT resource_type, error_class, ttfb_ms, total_ms
+        `SELECT url, resource_type, error_class, ttfb_ms, total_ms
          FROM requests WHERE run_id = ?`,
       )
       .all(runId) as {
+      url: string;
       resource_type: string;
       error_class: string | null;
       ttfb_ms: number | null;
@@ -610,6 +722,7 @@ export class DatabaseStore {
 
     return {
       totalRequests: rows.length,
+      uniqueRequests: new Set(rows.map((row) => row.url)).size,
       errorCount: rows.filter((row) => row.error_class !== null).length,
       pageCount: rows.filter((row) => row.resource_type === "page").length,
       resourceTypeCounts: countResourceTypes(rows),
@@ -647,18 +760,42 @@ export class DatabaseStore {
 
   getRequestsForRun(
     runId: string,
-    options: { resourceType?: ResourceType; limit?: number } = {},
+    options: {
+      resourceType?: ResourceType;
+      limit?: number;
+      sort?: "created_at" | "latency";
+      order?: "asc" | "desc";
+    } = {},
   ): RequestRecord[] {
-    const rows = this.db
-      .prepare("SELECT * FROM requests WHERE run_id = ? ORDER BY created_at ASC")
-      .all(runId) as RequestRow[];
+    const sort = options.sort ?? "created_at";
+    const order = options.order ?? (sort === "latency" ? "desc" : "asc");
 
-    let requests = rows.map(rowToRequest);
+    const params: (string | number)[] = [runId];
+    let query = "SELECT * FROM requests WHERE run_id = ?";
     if (options.resourceType) {
-      requests = requests.filter((request) => request.resourceType === options.resourceType);
+      query += " AND resource_type = ?";
+      params.push(options.resourceType);
     }
-    if (options.limit !== undefined) return requests.slice(-options.limit);
-    return requests;
+
+    if (options.limit !== undefined && sort === "created_at" && order === "asc") {
+      query = `SELECT * FROM (${query} ORDER BY created_at DESC LIMIT ?) ORDER BY created_at ASC`;
+      params.push(options.limit);
+      const rows = this.db.prepare(query).all(...params) as RequestRow[];
+      return rows.map(rowToRequest);
+    }
+
+    const orderClause =
+      sort === "latency"
+        ? `COALESCE(ttfb_ms, total_ms) ${order === "desc" ? "DESC" : "ASC"}, created_at ASC`
+        : `created_at ${order === "desc" ? "DESC" : "ASC"}`;
+    query += ` ORDER BY ${orderClause}`;
+    if (options.limit !== undefined) {
+      query += " LIMIT ?";
+      params.push(options.limit);
+    }
+
+    const rows = this.db.prepare(query).all(...params) as RequestRow[];
+    return rows.map(rowToRequest);
   }
 }
 
@@ -676,7 +813,9 @@ export function templateInputFromTemplate(template: Template): TemplateInput {
     timeLimitSeconds: template.timeLimitSeconds,
     allowImages: template.allowImages,
     excludePagesFromResults: template.excludePagesFromResults,
-    dedupeRequests: template.dedupeRequests,
+    pageCrawlBehavior: template.pageCrawlBehavior,
+    maxPageVisits: template.maxPageVisits,
+    dedupeResourceTypes: template.dedupeResourceTypes,
     respectRobots: template.respectRobots,
     requestTimeoutMs: template.requestTimeoutMs,
     connectTimeoutMs: template.connectTimeoutMs,
@@ -698,6 +837,7 @@ export function aggregatesFromLatencies(
   const percentiles = computePercentiles(latencies);
   return {
     totalRequests: latencies.length,
+    uniqueRequests: latencies.length,
     errorCount,
     pageCount,
     resourceTypeCounts:

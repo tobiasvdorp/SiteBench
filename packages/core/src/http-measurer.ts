@@ -15,6 +15,7 @@ export type MeasureResult = {
   redirectCount: number;
   bodyText: string | null;
   contentType: string | null;
+  responseHeaders: Record<string, string>;
 };
 
 export type HttpTransport = (
@@ -139,6 +140,7 @@ export class HttpMeasurer {
                 redirectCount,
                 bodyText: null,
                 contentType: response.headers["content-type"] ?? null,
+                responseHeaders: response.headers,
               };
             }
 
@@ -155,6 +157,7 @@ export class HttpMeasurer {
                 redirectCount,
                 bodyText: null,
                 contentType: null,
+                responseHeaders: response.headers,
               };
             }
 
@@ -177,6 +180,7 @@ export class HttpMeasurer {
             redirectCount,
             bodyText: text,
             contentType: response.headers["content-type"] ?? null,
+            responseHeaders: response.headers,
           };
         } finally {
           clearTimeout(timeout);
@@ -194,6 +198,7 @@ export class HttpMeasurer {
         redirectCount,
         bodyText: null,
         contentType: null,
+        responseHeaders: {},
       };
     } catch (error) {
       const classified = classifyError(error);
@@ -213,6 +218,7 @@ export class HttpMeasurer {
         redirectCount,
         bodyText: null,
         contentType: null,
+        responseHeaders: {},
       };
     }
   }

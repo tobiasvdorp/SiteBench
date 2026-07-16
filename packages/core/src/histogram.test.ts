@@ -5,10 +5,12 @@ import {
   axisTickIntervalMs,
   bucketIndicesInRange,
   computeAutoChartMaxMs,
+  countRequestsBeyondMs,
   histogramBucketPercentages,
   histogramTotalCount,
   lastNonZeroBucketIndex,
   lastNonZeroBucketIndexAcross,
+  maxLatencyMsAcross,
   shouldShowAxisTick,
   validateChartRange,
   combineHistograms,
@@ -99,6 +101,15 @@ describe("chart range utilities", () => {
     expect(axisTickIntervalMs(4000)).toBe(1000);
     expect(shouldShowAxisTick(200, 200)).toBe(true);
     expect(shouldShowAxisTick(150, 200)).toBe(false);
+  });
+
+  it("counts requests beyond a chart max across histograms", () => {
+    const shortRun = buildHistogram([100, 120, 900]);
+    const longRun = buildHistogram([100, 120, 950, 980]);
+    const maxMs = 400;
+
+    expect(countRequestsBeyondMs([shortRun, longRun], maxMs)).toBe(3);
+    expect(maxLatencyMsAcross([shortRun, longRun])).toBe(1000);
   });
 });
 

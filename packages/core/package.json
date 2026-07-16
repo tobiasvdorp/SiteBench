@@ -12,10 +12,15 @@
     "./histogram": {
       "types": "./dist/histogram.d.ts",
       "import": "./dist/histogram.js"
+    },
+    "./slow-page-patterns": {
+      "types": "./dist/slow-page-patterns.d.ts",
+      "import": "./dist/slow-page-patterns.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:watch": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "NODE_OPTIONS='--experimental-sqlite' vitest run",
     "test:watch": "NODE_OPTIONS='--experimental-sqlite' vitest"

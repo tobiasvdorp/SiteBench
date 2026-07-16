@@ -54,10 +54,20 @@ export function getRun(id: string) {
   return request<Run>(`/api/runs/${id}`);
 }
 
-export function getRunRequests(id: string, options?: { resourceType?: import("@sitebench/core").ResourceType; limit?: number }) {
+export function getRunRequests(
+  id: string,
+  options?: {
+    resourceType?: import("@sitebench/core").ResourceType;
+    limit?: number;
+    sort?: "created_at" | "latency";
+    order?: "asc" | "desc";
+  },
+) {
   const params = new URLSearchParams();
   if (options?.limit !== undefined) params.set("limit", String(options.limit));
   if (options?.resourceType) params.set("resourceType", options.resourceType);
+  if (options?.sort) params.set("sort", options.sort);
+  if (options?.order) params.set("order", options.order);
   const query = params.size > 0 ? `?${params.toString()}` : "";
   return request<RequestRecord[]>(`/api/runs/${id}/requests${query}`);
 }

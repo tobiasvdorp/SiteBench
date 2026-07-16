@@ -90,6 +90,45 @@ describe("validateCrawlConfig", () => {
     });
     expect(result.ok).toBe(false);
   });
+
+  it("defaults page crawl behavior to unique-explorer", () => {
+    const result = validateCrawlConfig({
+      startUrl: "https://example.com",
+      maxPages: 10,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.config.pageCrawlBehavior).toBe("unique-explorer");
+      expect(result.config.maxPageVisits).toBeNull();
+      expect(result.config.dedupeResourceTypes).toContain("page");
+    }
+  });
+
+  it("infers stress behavior from legacy configs without page dedupe", () => {
+    const result = validateCrawlConfig({
+      startUrl: "https://example.com",
+      maxPages: 10,
+      dedupeResourceTypes: ["css", "js", "font", "image", "other"],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.config.pageCrawlBehavior).toBe("stress");
+      expect(result.config.dedupeResourceTypes).not.toContain("page");
+    }
+  });
+
+  it("requires maxPageVisits only for bounded-revisits", () => {
+    const result = validateCrawlConfig({
+      startUrl: "https://example.com",
+      maxPages: 10,
+      pageCrawlBehavior: "bounded-revisits",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.config.maxPageVisits).toBe(3);
+      expect(result.config.dedupeResourceTypes).not.toContain("page");
+    }
+  });
 });
 
 describe("validateRunName", () => {

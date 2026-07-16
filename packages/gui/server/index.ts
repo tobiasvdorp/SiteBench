@@ -5,6 +5,10 @@ import {
   SiteBench,
   ValidationFailure,
   StartFailure,
+  normalizeDedupeResourceTypes,
+  normalizeMaxPageVisits,
+  normalizePageCrawlBehavior,
+  syncPageInDedupeResourceTypes,
   type CrawlConfig,
   type RequestProgressItem,
   type ReportInput,
@@ -48,6 +52,11 @@ function broadcastProgress(runId: string, payload: ProgressPayload) {
 }
 
 function templateInputFromBody(body: Record<string, unknown>): TemplateInput {
+  const pageCrawlBehavior = normalizePageCrawlBehavior(
+    body.pageCrawlBehavior,
+    body.dedupeResourceTypes,
+    body.dedupeRequests,
+  );
   return {
     name: String(body.name ?? ""),
     startUrl: String(body.startUrl ?? ""),
@@ -62,7 +71,12 @@ function templateInputFromBody(body: Record<string, unknown>): TemplateInput {
     excludePagesFromResults: Boolean(
       body.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
     ),
-    dedupeRequests: Boolean(body.dedupeRequests ?? DEFAULT_CRAWL_CONFIG.dedupeRequests),
+    pageCrawlBehavior,
+    maxPageVisits: normalizeMaxPageVisits(body.maxPageVisits, pageCrawlBehavior),
+    dedupeResourceTypes: syncPageInDedupeResourceTypes(
+      normalizeDedupeResourceTypes(body.dedupeResourceTypes, body.dedupeRequests),
+      pageCrawlBehavior,
+    ),
     respectRobots: true,
     requestTimeoutMs: Number(body.requestTimeoutMs ?? DEFAULT_CRAWL_CONFIG.requestTimeoutMs),
     connectTimeoutMs: Number(body.connectTimeoutMs ?? DEFAULT_CRAWL_CONFIG.connectTimeoutMs),
@@ -168,12 +182,18 @@ export function createApiServer() {
         const limitParam = url.searchParams.get("limit");
         const limit = limitParam !== null ? Number(limitParam) : undefined;
         const resourceType = url.searchParams.get("resourceType") ?? undefined;
+        const sortParam = url.searchParams.get("sort");
+        const sort = sortParam === "latency" || sortParam === "created_at" ? sortParam : undefined;
+        const orderParam = url.searchParams.get("order");
+        const order = orderParam === "asc" || orderParam === "desc" ? orderParam : undefined;
         sendJson(
           res,
           200,
           bench.getRunRequests(runId, {
             limit,
             resourceType: resourceType as import("@sitebench/core").ResourceType | undefined,
+            sort,
+            order,
           }),
         );
         return;

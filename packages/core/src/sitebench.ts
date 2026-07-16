@@ -116,7 +116,15 @@ export class SiteBench {
     return this.store.getRun(id);
   }
 
-  getRunRequests(id: string, options?: { resourceType?: import("./types.js").ResourceType; limit?: number }) {
+  getRunRequests(
+    id: string,
+    options?: {
+      resourceType?: import("./types.js").ResourceType;
+      limit?: number;
+      sort?: "created_at" | "latency";
+      order?: "asc" | "desc";
+    },
+  ) {
     return this.store.getRequestsForRun(id, options);
   }
 
@@ -157,7 +165,11 @@ export class SiteBench {
           allowImages: input.overrides.allowImages ?? DEFAULT_CRAWL_CONFIG.allowImages,
           excludePagesFromResults:
             input.overrides.excludePagesFromResults ?? DEFAULT_CRAWL_CONFIG.excludePagesFromResults,
-          dedupeRequests: input.overrides.dedupeRequests ?? DEFAULT_CRAWL_CONFIG.dedupeRequests,
+          pageCrawlBehavior:
+            input.overrides.pageCrawlBehavior ?? DEFAULT_CRAWL_CONFIG.pageCrawlBehavior,
+          maxPageVisits: input.overrides.maxPageVisits ?? DEFAULT_CRAWL_CONFIG.maxPageVisits,
+          dedupeResourceTypes:
+            input.overrides.dedupeResourceTypes ?? DEFAULT_CRAWL_CONFIG.dedupeResourceTypes,
           respectRobots: input.overrides.respectRobots ?? DEFAULT_CRAWL_CONFIG.respectRobots,
           requestTimeoutMs: input.overrides.requestTimeoutMs ?? DEFAULT_CRAWL_CONFIG.requestTimeoutMs,
           connectTimeoutMs: input.overrides.connectTimeoutMs ?? DEFAULT_CRAWL_CONFIG.connectTimeoutMs,

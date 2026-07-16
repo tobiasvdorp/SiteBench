@@ -4,7 +4,12 @@ import { createInMemoryStore } from "./database.js";
 import { HttpMeasurer } from "./http-measurer.js";
 import { RunRecorder } from "./run-recorder.js";
 import { startFixtureServer, type FixtureServer } from "./test-support/fixture-server.js";
-import type { ResourceType } from "./types.js";
+import {
+  ASSET_RESOURCE_TYPES,
+  RESOURCE_TYPES,
+  type PageCrawlBehavior,
+  type ResourceType,
+} from "./types.js";
 import { sleep } from "./utils.js";
 
 function createSnapshot(
@@ -12,7 +17,9 @@ function createSnapshot(
   allowImages: boolean,
   maxPages: number | null = 1,
   excludePagesFromResults = false,
-  dedupeRequests = true,
+  dedupeResourceTypes: ResourceType[] = [...RESOURCE_TYPES],
+  pageCrawlBehavior: PageCrawlBehavior = "unique-explorer",
+  maxPageVisits: number | null = null,
 ) {
   return {
     startUrl: `${baseUrl}/`,
@@ -22,7 +29,9 @@ function createSnapshot(
     timeLimitSeconds: null,
     allowImages,
     excludePagesFromResults,
-    dedupeRequests,
+    pageCrawlBehavior,
+    maxPageVisits,
+    dedupeResourceTypes,
     respectRobots: false,
     requestTimeoutMs: 5000,
     connectTimeoutMs: 2000,
@@ -48,10 +57,20 @@ async function runFixtureCrawl(
   allowImages: boolean,
   maxPages: number | null = 1,
   excludePagesFromResults = false,
-  dedupeRequests = true,
+  dedupeResourceTypes: ResourceType[] = [...RESOURCE_TYPES],
+  pageCrawlBehavior: PageCrawlBehavior = "unique-explorer",
+  maxPageVisits: number | null = null,
 ) {
   const store = createInMemoryStore();
-  const snapshot = createSnapshot(baseUrl, allowImages, maxPages, excludePagesFromResults, dedupeRequests);
+  const snapshot = createSnapshot(
+    baseUrl,
+    allowImages,
+    maxPages,
+    excludePagesFromResults,
+    dedupeResourceTypes,
+    pageCrawlBehavior,
+    maxPageVisits,
+  );
   const run = store.createRun(`fixture-${allowImages}-${maxPages}`, baseUrl, snapshot);
   const recorder = new RunRecorder(store, run.id, { excludePagesFromResults });
 
@@ -100,8 +119,6 @@ describe("CrawlOrchestrator", () => {
     expect(hitCount(hits, "/font.woff2")).toBeGreaterThan(0);
     expect(hitCount(hits, "/font-from-css.woff2")).toBeGreaterThan(0);
     expect(hitCount(hits, "/photo.jpg")).toBe(0);
-    expect(hitCount(hits, "/photo-small.jpg")).toBe(0);
-    expect(hitCount(hits, "/photo-large.jpg")).toBe(0);
     expect(hitCount(hits, "/page2")).toBe(0);
 
     expect(requests.filter((request) => request.resourceType === "page")).toHaveLength(1);
@@ -122,7 +139,6 @@ describe("CrawlOrchestrator", () => {
 
     expect(hitCount(hits, "/photo.jpg")).toBeGreaterThan(0);
     expect(hitCount(hits, "/photo-small.jpg")).toBeGreaterThan(0);
-    expect(hitCount(hits, "/photo-large.jpg")).toBe(0);
 
     const imageRequests = requests.filter((request) => request.resourceType === "image");
     expect(imageRequests.length).toBeGreaterThan(0);
@@ -187,12 +203,67 @@ describe("CrawlOrchestrator", () => {
     expect(requests.filter((request) => request.resourceType === "page")).toHaveLength(2);
   });
 
-  it("re-fetches previously visited pages when dedupeRequests is disabled", async () => {
-    const { requests } = await runFixtureCrawl(baseUrl, false, 3, false, false);
+  it("re-fetches rediscovered pages without re-expanding in hub-revisit mode", async () => {
+    const { requests } = await runFixtureCrawl(
+      baseUrl,
+      false,
+      4,
+      false,
+      [...ASSET_RESOURCE_TYPES],
+      "hub-revisit",
+    );
     const hits = fixture.getHits();
 
     expect(hitCount(hits, "/")).toBe(2);
     expect(hitCount(hits, "/page2")).toBe(1);
+    expect(hitCount(hits, "/style.css")).toBe(1);
+    expect(hitCount(hits, "/app.js")).toBe(1);
+    expect(requests.filter((request) => request.resourceType === "page")).toHaveLength(3);
+  });
+
+  it("re-fetches and re-expands in stress mode", async () => {
+    const { requests } = await runFixtureCrawl(
+      baseUrl,
+      false,
+      4,
+      false,
+      [...ASSET_RESOURCE_TYPES],
+      "stress",
+    );
+    const hits = fixture.getHits();
+
+    expect(hitCount(hits, "/")).toBe(2);
+    expect(hitCount(hits, "/page2")).toBe(2);
+    expect(hitCount(hits, "/style.css")).toBe(1);
+    expect(hitCount(hits, "/app.js")).toBe(1);
+    expect(requests.filter((request) => request.resourceType === "page")).toHaveLength(4);
+  });
+
+  it("caps revisits in bounded-revisits mode", async () => {
+    const { requests } = await runFixtureCrawl(
+      baseUrl,
+      false,
+      10,
+      false,
+      [...ASSET_RESOURCE_TYPES],
+      "bounded-revisits",
+      2,
+    );
+    const hits = fixture.getHits();
+
+    expect(hitCount(hits, "/")).toBe(2);
+    expect(hitCount(hits, "/page2")).toBe(1);
+    expect(requests.filter((request) => request.resourceType === "page")).toHaveLength(3);
+  });
+
+  it("re-fetches assets when asset types are omitted from dedupeResourceTypes", async () => {
+    const { requests } = await runFixtureCrawl(baseUrl, false, 3, false, [], "stress");
+    const hits = fixture.getHits();
+
+    expect(hitCount(hits, "/")).toBe(2);
+    expect(hitCount(hits, "/page2")).toBe(1);
+    expect(hitCount(hits, "/style.css")).toBeGreaterThan(1);
+    expect(hitCount(hits, "/app.js")).toBeGreaterThan(1);
     expect(requests.filter((request) => request.resourceType === "page")).toHaveLength(3);
   });
 
@@ -256,7 +327,9 @@ describe("CrawlOrchestrator", () => {
       timeLimitSeconds: 1,
       allowImages: false,
       excludePagesFromResults: false,
-      dedupeRequests: true,
+      pageCrawlBehavior: "unique-explorer" as const,
+      maxPageVisits: null,
+      dedupeResourceTypes: [...RESOURCE_TYPES],
       respectRobots: false,
       requestTimeoutMs: 5000,
       connectTimeoutMs: 2000,

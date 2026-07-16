@@ -9,10 +9,12 @@ export {
   DEFAULT_ALLOW_IMAGES,
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_EXCLUDE_PAGES_FROM_RESULTS,
-  DEFAULT_DEDUPE_REQUESTS,
+  DEFAULT_DEDUPE_RESOURCE_TYPES,
   DEFAULT_MAX_PAGES,
+  DEFAULT_MAX_PAGE_VISITS,
   DEFAULT_MAX_REDIRECTS,
   DEFAULT_MAX_RETRIES,
+  DEFAULT_PAGE_CRAWL_BEHAVIOR,
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_RESPECT_ROBOTS,
   DEFAULT_RPS_LIMIT,
@@ -21,6 +23,14 @@ export {
   HISTOGRAM_BUCKET_SIZE_MS,
   HISTOGRAM_MAX_MS,
 } from "./defaults.js";
+export {
+  PAGE_CRAWL_BEHAVIOR_DESCRIPTIONS,
+  PAGE_CRAWL_BEHAVIOR_LABELS,
+  expandsOnlyOnFirstVisit,
+  normalizeMaxPageVisits,
+  normalizePageCrawlBehavior,
+  syncPageInDedupeResourceTypes,
+} from "./page-crawl-behavior.js";
 export { HttpMeasurer } from "./http-measurer.js";
 export type { HttpTransport, MeasureResult } from "./http-measurer.js";
 export { extractAssets, extractPageLinks } from "./html-parser.js";
@@ -29,10 +39,12 @@ export { RunRecorder } from "./run-recorder.js";
 export {
   getSiteOrigin,
   mergeCrawlConfig,
+  normalizeDedupeResourceTypes,
   validateCrawlConfig,
   validateRunName,
   emptyCrawlConfig,
 } from "./validation.js";
+export { analyzeSlowPages, computeSlowPageThreshold } from "./slow-page-patterns.js";
 export {
   buildHistogram,
   computePercentiles,
@@ -50,10 +62,12 @@ export {
   bucketIndicesInRange,
   combineHistograms,
   computeAutoChartMaxMs,
+  countRequestsBeyondMs,
   histogramBucketPercentages,
   histogramTotalCount,
   lastNonZeroBucketIndex,
   lastNonZeroBucketIndexAcross,
+  maxLatencyMsAcross,
   percentilesFromHistogram,
   shouldShowAxisTick,
   validateChartRange,
@@ -65,6 +79,7 @@ export type {
   CrawlConfig,
   ErrorClass,
   HistogramBucket,
+  PageCrawlBehavior,
   ProgressEvent,
   Report,
   ReportInput,
@@ -72,6 +87,7 @@ export type {
   RequestProgressItem,
   RequestRecord,
   RequestTimings,
+  ResponseHeaders,
   ResourceType,
   Run,
   RunAggregates,
@@ -81,6 +97,9 @@ export type {
   RunFailedEvent,
   RunListener,
   RunStatus,
+  SlowPageAnalysis,
+  SlowPagePattern,
+  SlowPagePatternConfidence,
   Template,
   TemplateInput,
   TruncationReason,
@@ -88,4 +107,4 @@ export type {
   ValidationResult,
 } from "./types.js";
 
-export { DEFAULT_COLORS } from "./types.js";
+export { ASSET_RESOURCE_TYPES, DEFAULT_COLORS, PAGE_CRAWL_BEHAVIORS, RESOURCE_TYPES } from "./types.js";

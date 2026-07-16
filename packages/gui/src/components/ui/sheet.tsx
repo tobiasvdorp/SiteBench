@@ -1,7 +1,12 @@
 import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { cva, type VariantProps } from "class-variance-authority";
-import type { ComponentPropsWithoutRef, HTMLAttributes } from "react";
+import { useCallback, useRef, useState, type ComponentPropsWithoutRef, type HTMLAttributes, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  clampRunDetailSheetWidth,
+  getRunDetailSheetWidth,
+  setRunDetailSheetWidth,
+} from "@/lib/run-detail-preferences";
 import { cn } from "@/lib/utils";
 
 const Sheet = SheetPrimitive.Root;
@@ -41,13 +46,101 @@ const sheetVariants = cva(
 );
 
 type SheetContentProps = ComponentPropsWithoutRef<typeof SheetPrimitive.Content> &
-  VariantProps<typeof sheetVariants>;
+  VariantProps<typeof sheetVariants> & {
+    resizable?: boolean;
+  };
 
-function SheetContent({ side = "right", className, children, ...props }: SheetContentProps) {
+function SheetResizeHandle({
+  side,
+  onResize,
+  onResizeEnd,
+}: {
+  side: NonNullable<VariantProps<typeof sheetVariants>["side"]>;
+  onResize: (width: number) => void;
+  onResizeEnd: (width: number) => void;
+}) {
+  const dragging = useRef(false);
+  const widthRef = useRef(0);
+
+  const updateWidth = useCallback(
+    (clientX: number) => {
+      const next =
+        side === "left"
+          ? clampRunDetailSheetWidth(clientX)
+          : clampRunDetailSheetWidth(window.innerWidth - clientX);
+      widthRef.current = next;
+      onResize(next);
+    },
+    [onResize, side],
+  );
+
+  const endResize = useCallback(() => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    document.body.style.removeProperty("user-select");
+    document.body.style.removeProperty("cursor");
+    onResizeEnd(widthRef.current);
+  }, [onResizeEnd]);
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    dragging.current = true;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "ew-resize";
+    updateWidth(event.clientX);
+  };
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging.current) return;
+    updateWidth(event.clientX);
+  };
+
+  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging.current) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    endResize();
+  };
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize panel"
+      className={cn(
+        "absolute top-0 z-20 h-full w-2 touch-none select-none",
+        "cursor-ew-resize before:absolute before:top-0 before:h-full before:w-px before:bg-border/60 before:transition-colors",
+        "hover:before:bg-primary/50 active:before:bg-primary",
+        side === "right" ? "left-0 before:left-1/2 before:-translate-x-1/2" : "right-0 before:right-1/2 before:translate-x-1/2",
+      )}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onLostPointerCapture={endResize}
+    />
+  );
+}
+
+function SheetContent({ side = "right", className, children, resizable = false, style, ...props }: SheetContentProps) {
+  const [width, setWidth] = useState(getRunDetailSheetWidth);
+  const isResizable = resizable && (side === "right" || side === "left");
+
+  const handleResizeEnd = useCallback((nextWidth: number) => {
+    setRunDetailSheetWidth(nextWidth);
+  }, []);
+
   return (
     <SheetPortal>
       <SheetOverlay />
-      <SheetPrimitive.Content className={cn(sheetVariants({ side }), className)} {...props}>
+      <SheetPrimitive.Content
+        className={cn(sheetVariants({ side }), isResizable && "!w-auto !max-w-none sm:!max-w-none", className)}
+        style={isResizable ? { ...style, width } : style}
+        {...props}
+      >
+        {isResizable && (
+          <SheetResizeHandle side={side} onResize={setWidth} onResizeEnd={handleResizeEnd} />
+        )}
         {children}
         <SheetPrimitive.Close className="absolute right-4 top-4 cursor-pointer rounded-lg p-1.5 opacity-60 ring-offset-background transition-all hover:bg-accent hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed">
           <X className="size-4" />

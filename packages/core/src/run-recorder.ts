@@ -57,6 +57,8 @@ export class RunRecorder {
         timings: result.timings,
         byteCount: result.byteCount,
         redirectCount: result.redirectCount,
+        contentType: result.contentType,
+        responseHeaders: result.responseHeaders,
       });
 
       this.stats.requestsCompleted += 1;

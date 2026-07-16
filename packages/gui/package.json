@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NODE_OPTIONS='--experimental-sqlite' concurrently -n api,web -c blue,green \"pnpm dev:api\" \"pnpm dev:web\"",
-    "dev:api": "NODE_OPTIONS='--experimental-sqlite' tsx watch server/index.ts",
+    "dev": "NODE_OPTIONS='--experimental-sqlite' concurrently -n core,api,web -c yellow,blue,green \"pnpm --filter @sitebench/core build:watch\" \"pnpm dev:api\" \"pnpm dev:web\"",
+    "dev:api": "NODE_OPTIONS='--experimental-sqlite' tsx watch --include '../core/dist/**' server/index.ts",
     "dev:web": "vite",
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.server.json && vite build",
     "start": "NODE_OPTIONS='--experimental-sqlite' concurrently -n api,web -c blue,green \"pnpm start:api\" \"pnpm start:web\"",

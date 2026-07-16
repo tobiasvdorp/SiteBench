@@ -15,6 +15,7 @@ function pageResult(url: string): MeasureResult {
     redirectCount: 0,
     bodyText: "<html></html>",
     contentType: "text/html",
+    responseHeaders: { server: "nginx" },
   };
 }
 
@@ -30,6 +31,7 @@ function cssResult(url: string): MeasureResult {
     redirectCount: 0,
     bodyText: "body {}",
     contentType: "text/css",
+    responseHeaders: {},
   };
 }
 
@@ -44,7 +46,9 @@ describe("RunRecorder", () => {
       timeLimitSeconds: null,
       allowImages: false,
       excludePagesFromResults: false,
-      dedupeRequests: true,
+      pageCrawlBehavior: "unique-explorer" as const,
+      maxPageVisits: null,
+      dedupeResourceTypes: ["page", "css", "js", "font", "image", "other"] as import("./types.js").ResourceType[],
       respectRobots: true,
       requestTimeoutMs: 30_000,
       connectTimeoutMs: 10_000,
@@ -75,7 +79,9 @@ describe("RunRecorder", () => {
       timeLimitSeconds: null,
       allowImages: false,
       excludePagesFromResults: true,
-      dedupeRequests: true,
+      pageCrawlBehavior: "unique-explorer" as const,
+      maxPageVisits: null,
+      dedupeResourceTypes: ["page", "css", "js", "font", "image", "other"] as import("./types.js").ResourceType[],
       respectRobots: true,
       requestTimeoutMs: 30_000,
       connectTimeoutMs: 10_000,

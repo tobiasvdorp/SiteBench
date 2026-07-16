@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import type { RequestProgressItem, ResourceType, Run } from "@sitebench/core";
-import { Square } from "lucide-react";
+import { RotateCw, Square } from "lucide-react";
+import { SlowPagesPanel } from "@/components/SlowPagesPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LiveIndicator } from "@/components/ui/live-indicator";
 import { Metric } from "@/components/ui/metric";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { StatTile } from "@/components/ui/stat-tile";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -23,6 +23,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ASSET_RESOURCE_TYPES,
+  resolvePageCrawlBehaviorLabel,
+} from "@/lib/run-settings-preferences";
 import { cn } from "@/lib/utils";
 
 export type RunProgressState = {
@@ -34,6 +39,7 @@ export type RunProgressState = {
 };
 
 type RequestFilter = "all" | ResourceType | "assets";
+type DetailTab = "requests" | "slow-pages";
 
 type Props = {
   run: Run | null;
@@ -43,6 +49,8 @@ type Props = {
   recentRequests: RequestProgressItem[];
   onStop: () => void;
   stopping: boolean;
+  onRerun: () => void;
+  rerunning: boolean;
 };
 
 const RESOURCE_TYPES = ["page", "css", "js", "font", "image", "other"] as const;
@@ -110,8 +118,11 @@ export function RunDetailSheet({
   recentRequests,
   onStop,
   stopping,
+  onRerun,
+  rerunning,
 }: Props) {
   const [requestFilter, setRequestFilter] = useState<RequestFilter>("all");
+  const [detailTab, setDetailTab] = useState<DetailTab>("requests");
   const isLive = run?.status === "running" || run?.status === "pending";
   const orderedRequests = [...recentRequests].reverse();
   const filteredRequests = useMemo(
@@ -140,8 +151,13 @@ export function RunDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col sm:max-w-xl" aria-describedby="run-detail-description">
-        <SheetHeader className="border-b border-border/40 pb-4">
+      <SheetContent
+        side="right"
+        resizable
+        className="flex h-full flex-col overflow-hidden"
+        aria-describedby="run-detail-description"
+      >
+        <SheetHeader className="shrink-0 border-b border-border/40 pb-4">
           <div className="flex items-start justify-between gap-3 pr-8">
             <div className="min-w-0 space-y-1">
               <SheetTitle className="truncate">{run?.name ?? "Run details"}</SheetTitle>
@@ -153,7 +169,7 @@ export function RunDetailSheet({
         </SheetHeader>
 
         {run && (
-          <div className="mt-4 flex min-h-0 flex-1 flex-col space-y-4">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pt-4 pr-1">
             <div className="flex flex-wrap items-center gap-2">
               {isLive ? <LiveIndicator /> : <StatusBadge status={run.status} showLiveIndicator={false} />}
               <Badge variant={run.configSnapshot.allowImages ? "secondary" : "outline"}>
@@ -162,8 +178,26 @@ export function RunDetailSheet({
               {run.configSnapshot.excludePagesFromResults && (
                 <Badge variant="secondary">Pages excluded from results</Badge>
               )}
-              {!run.configSnapshot.dedupeRequests && (
-                <Badge variant="secondary">Revisits allowed</Badge>
+              <Badge variant="secondary">
+                {resolvePageCrawlBehaviorLabel(
+                  run.configSnapshot.pageCrawlBehavior,
+                  run.configSnapshot.dedupeResourceTypes,
+                )}
+                {run.configSnapshot.pageCrawlBehavior === "bounded-revisits" &&
+                run.configSnapshot.maxPageVisits
+                  ? ` (${run.configSnapshot.maxPageVisits})`
+                  : ""}
+              </Badge>
+              {(run.configSnapshot.dedupeResourceTypes?.filter((type) => type !== "page").length ??
+                ASSET_RESOURCE_TYPES.length) < ASSET_RESOURCE_TYPES.length && (
+                <Badge variant="secondary">
+                  {(run.configSnapshot.dedupeResourceTypes?.filter((type) => type !== "page").length ??
+                    0) === 0
+                    ? "No asset dedupe"
+                    : `Asset dedupe: ${(run.configSnapshot.dedupeResourceTypes ?? [])
+                        .filter((type) => type !== "page")
+                        .join(", ")}`}
+                </Badge>
               )}
               <span className="font-mono text-xs text-muted-foreground">{run.siteOrigin}</span>
             </div>
@@ -190,7 +224,15 @@ export function RunDetailSheet({
             )}
 
             {run.aggregates && !isLive && (
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <StatTile
+                  label="Unique URLs"
+                  value={run.aggregates.uniqueRequests ?? run.aggregates.totalRequests}
+                  accent={
+                    (run.aggregates.uniqueRequests ?? run.aggregates.totalRequests) <
+                    run.aggregates.totalRequests
+                  }
+                />
                 <StatTile label="p50" value={run.aggregates.p50.toFixed(1)} unit="ms" accent />
                 <StatTile label="p90" value={run.aggregates.p90.toFixed(1)} unit="ms" />
                 <StatTile label="p99" value={run.aggregates.p99.toFixed(1)} unit="ms" />
@@ -244,87 +286,110 @@ export function RunDetailSheet({
               </Badge>
             )}
 
-            {isLive && (
-              <Button
-                variant="destructive"
-                size="sm"
-                className="gap-2 self-start"
-                disabled={stopping}
-                onClick={onStop}
-                aria-label="Stop run"
-              >
-                <Square className="size-3.5 fill-current" />
-                {stopping ? "Stopping…" : "Stop run"}
-              </Button>
-            )}
-
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-[0.65rem] font-medium uppercase tracking-widest text-muted-foreground">
-                  {isLive ? "Recent requests" : "Stored requests"}
-                </h3>
-                <div className="flex flex-wrap gap-1">
-                  {FILTER_OPTIONS.map((option) => (
-                    <Button
-                      key={option.value}
-                      type="button"
-                      size="sm"
-                      variant={requestFilter === option.value ? "default" : "outline"}
-                      className={cn("h-7 px-2 text-xs")}
-                      onClick={() => setRequestFilter(option.value)}
-                    >
-                      {option.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              {filteredRequests.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  {orderedRequests.length === 0
-                    ? isLive
-                      ? "Waiting for fetch activity…"
-                      : "No persisted request rows available for this run."
-                    : "No requests match this filter in the loaded sample."}
-                </p>
-              ) : (
-                <ScrollArea className="h-[min(50vh,28rem)] rounded-lg border border-border/40">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-16">Status</TableHead>
-                        <TableHead className="w-16">Type</TableHead>
-                        <TableHead>URL</TableHead>
-                        <TableHead className="w-20 text-right">Time</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredRequests.map((item, index) => (
-                        <TableRow key={`${item.at}-${index}`}>
-                          <TableCell>
-                            <Badge variant={statusBadgeVariant(item.statusCode, item.errorClass)} title={item.errorMessage ?? undefined}>
-                              {formatStatus(item)}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="text-xs">
-                              {resourceTypeLabel(item.resourceType)}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="max-w-[12rem] truncate font-mono text-xs" title={item.url}>
-                            {item.url}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Metric className="text-xs text-muted-foreground" unit="ms">
-                              {item.totalMs.toFixed(0)}
-                            </Metric>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </ScrollArea>
+            <div className="flex flex-wrap gap-2">
+              {isLive && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="gap-2"
+                  disabled={stopping}
+                  onClick={onStop}
+                  aria-label="Stop run"
+                >
+                  <Square className="size-3.5 fill-current" />
+                  {stopping ? "Stopping…" : "Stop run"}
+                </Button>
+              )}
+              {!isLive && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={rerunning}
+                  onClick={onRerun}
+                  aria-label="Re-run with same config"
+                >
+                  <RotateCw className="size-3.5" />
+                  {rerunning ? "Starting…" : "Re-run"}
+                </Button>
               )}
             </div>
+
+            <Tabs value={detailTab} onValueChange={(value) => setDetailTab(value as DetailTab)} className="flex flex-col gap-2">
+              <TabsList className="sticky top-0 z-10 w-full shrink-0 justify-start bg-surface-overlay">
+                <TabsTrigger value="requests">{isLive ? "Recent requests" : "Stored requests"}</TabsTrigger>
+                <TabsTrigger value="slow-pages">Slow pages</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="requests" className="mt-0 data-[state=inactive]:hidden">
+                <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+                  <div className="flex flex-wrap gap-1">
+                    {FILTER_OPTIONS.map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        size="sm"
+                        variant={requestFilter === option.value ? "default" : "outline"}
+                        className={cn("h-7 px-2 text-xs")}
+                        onClick={() => setRequestFilter(option.value)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                {filteredRequests.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {orderedRequests.length === 0
+                      ? isLive
+                        ? "Waiting for fetch activity…"
+                        : "No persisted request rows available for this run."
+                      : "No requests match this filter in the loaded sample."}
+                  </p>
+                ) : (
+                  <div className="rounded-lg border border-border/40">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-16">Status</TableHead>
+                          <TableHead className="w-16">Type</TableHead>
+                          <TableHead>URL</TableHead>
+                          <TableHead className="w-20 text-right">Time</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredRequests.map((item, index) => (
+                          <TableRow key={`${item.at}-${index}`}>
+                            <TableCell>
+                              <Badge variant={statusBadgeVariant(item.statusCode, item.errorClass)} title={item.errorMessage ?? undefined}>
+                                {formatStatus(item)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-xs">
+                                {resourceTypeLabel(item.resourceType)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="max-w-[12rem] truncate font-mono text-xs" title={item.url}>
+                              {item.url}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Metric className="text-xs text-muted-foreground" unit="ms">
+                                {item.totalMs.toFixed(0)}
+                              </Metric>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="slow-pages" className="mt-0 data-[state=inactive]:hidden">
+                <SlowPagesPanel run={run} isLive={isLive} />
+              </TabsContent>
+            </Tabs>
           </div>
         )}
       </SheetContent>

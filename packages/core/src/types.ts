@@ -8,6 +8,9 @@ export type ResourceType =
   | "image"
   | "other";
 
+export const RESOURCE_TYPES: ResourceType[] = ["page", "css", "js", "font", "image", "other"];
+export const ASSET_RESOURCE_TYPES: ResourceType[] = ["css", "js", "font", "image", "other"];
+
 export type ErrorClass =
   | "dns"
   | "tls"
@@ -21,6 +24,26 @@ export type ErrorClass =
 
 export type TruncationReason = "max-pages" | "time-limit";
 
+/**
+ * How page discovery behaves when a URL is seen again.
+ * - unique-explorer: fetch each page once and expand its links
+ * - hub-revisit: refetch rediscovered pages, but expand links only on the first visit
+ * - bounded-revisits: like hub-revisit, capped by maxPageVisits per URL
+ * - stress: refetch and re-expand every rediscovery (load/stress mode)
+ */
+export type PageCrawlBehavior =
+  | "unique-explorer"
+  | "hub-revisit"
+  | "bounded-revisits"
+  | "stress";
+
+export const PAGE_CRAWL_BEHAVIORS: PageCrawlBehavior[] = [
+  "unique-explorer",
+  "hub-revisit",
+  "bounded-revisits",
+  "stress",
+];
+
 export type CrawlConfig = {
   startUrl: string;
   rpsLimit: number;
@@ -29,7 +52,10 @@ export type CrawlConfig = {
   timeLimitSeconds: number | null;
   allowImages: boolean;
   excludePagesFromResults: boolean;
-  dedupeRequests: boolean;
+  pageCrawlBehavior: PageCrawlBehavior;
+  /** Total fetches allowed per page URL when behavior is bounded-revisits. */
+  maxPageVisits: number | null;
+  dedupeResourceTypes: ResourceType[];
   respectRobots: boolean;
   requestTimeoutMs: number;
   connectTimeoutMs: number;
@@ -62,6 +88,8 @@ export type RequestTimings = {
   totalMs: number;
 };
 
+export type ResponseHeaders = Record<string, string>;
+
 export type RequestRecord = {
   id: string;
   runId: string;
@@ -73,7 +101,28 @@ export type RequestRecord = {
   timings: RequestTimings;
   byteCount: number;
   redirectCount: number;
+  contentType: string | null;
+  responseHeaders: ResponseHeaders;
   createdAt: string;
+};
+
+export type SlowPagePatternConfidence = "high" | "medium" | "low";
+
+export type SlowPagePattern = {
+  label: string;
+  dimension: string;
+  value: string;
+  slowCount: number;
+  totalCount: number;
+  avgLatencyMs: number;
+  enrichment: number;
+  confidence: SlowPagePatternConfidence;
+};
+
+export type SlowPageAnalysis = {
+  thresholdMs: number;
+  slowPages: RequestRecord[];
+  patterns: SlowPagePattern[];
 };
 
 export type ResourceTypeCounts = Record<ResourceType, number>;
@@ -88,6 +137,7 @@ export type LatencyPercentiles = {
 
 export type RunAggregates = {
   totalRequests: number;
+  uniqueRequests: number;
   errorCount: number;
   pageCount: number;
   resourceTypeCounts: ResourceTypeCounts;

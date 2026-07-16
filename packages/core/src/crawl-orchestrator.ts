@@ -196,7 +196,7 @@ export class CrawlOrchestrator {
   private enqueueAsset(url: string, resourceType: import("./types.js").ResourceType) {
     const decision = this.policy.shouldFetchAsset(url, resourceType);
     if (!decision.allowed) return;
-    this.policy.markAssetQueued(url);
+    this.policy.markAssetQueued(url, resourceType);
     this.assetQueue.push({ url: normalizeUrl(url)!, type: "asset", resourceType });
     this.recorder.setQueueSize(this.pageQueue.length + this.assetQueue.length);
     this.notifyWorkAvailable();
@@ -211,8 +211,11 @@ export class CrawlOrchestrator {
 
     if (result.errorClass || !result.bodyText) return;
 
-    const links = extractPageLinks(result.bodyText, url, this.policy.getOrigin());
-    for (const link of links) this.enqueuePage(link.url);
+    if (this.policy.shouldExpandPageLinks(url)) {
+      const links = extractPageLinks(result.bodyText, url, this.policy.getOrigin());
+      for (const link of links) this.enqueuePage(link.url);
+      this.policy.markPageExpanded(url);
+    }
 
     const assets = extractAssets(
       result.bodyText,

@@ -109,6 +109,13 @@ function RunHistory({
                     </span>
                     <span>
                       <Metric>{run.aggregates.totalRequests}</Metric> requests
+                      {typeof run.aggregates.uniqueRequests === "number" &&
+                        run.aggregates.uniqueRequests < run.aggregates.totalRequests && (
+                        <>
+                          {" "}
+                          (<Metric>{run.aggregates.uniqueRequests}</Metric> unique)
+                        </>
+                      )}
                     </span>
                   </>
                 )}

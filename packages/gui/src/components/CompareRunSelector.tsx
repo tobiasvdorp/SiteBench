@@ -77,8 +77,8 @@ function CompareRunSelector({
   };
 
   return (
-    <div className="surface-inset flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
-      <div ref={containerRef} className="relative min-w-0 flex-1 space-y-1">
+    <div className="surface-inset flex flex-col gap-4 p-4 sm:flex-row sm:flex-wrap sm:items-end">
+      <div ref={containerRef} className="relative w-full min-w-0 space-y-1 sm:min-w-96 sm:flex-[2]">
         <Label className="text-[0.65rem] font-medium uppercase tracking-widest text-muted-foreground">
           Compare runs
         </Label>
@@ -98,7 +98,7 @@ function CompareRunSelector({
         </button>
         {open && (
           <div
-            className="absolute top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border bg-popover p-2 shadow-lg"
+            className="absolute top-full z-50 mt-1 max-h-72 min-w-full w-max max-w-[min(100vw-2rem,42rem)] overflow-y-auto rounded-lg border bg-popover p-2 shadow-lg"
             role="listbox"
             aria-label="Runs to compare"
           >
@@ -130,7 +130,7 @@ function CompareRunSelector({
                         "cursor-not-allowed": !selectable,
                       })}
                     >
-                      <span className="block truncate">{run.name}</span>
+                      <span className="block break-words">{run.name}</span>
                       <span className="block text-xs text-muted-foreground">
                         {new Date(run.startedAt).toLocaleString()}
                         {!selectable && " · Not comparable"}
@@ -144,7 +144,7 @@ function CompareRunSelector({
         )}
       </div>
 
-      <div className="space-y-1 sm:w-56">
+      <div className="space-y-1 sm:min-w-56 sm:flex-1">
         <Label className="text-[0.65rem] font-medium uppercase tracking-widest text-muted-foreground">
           Baseline
         </Label>

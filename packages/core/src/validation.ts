@@ -1,23 +1,43 @@
 import {
   DEFAULT_ALLOW_IMAGES,
   DEFAULT_EXCLUDE_PAGES_FROM_RESULTS,
-  DEFAULT_DEDUPE_REQUESTS,
+  DEFAULT_DEDUPE_RESOURCE_TYPES,
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_CRAWL_CONFIG,
   DEFAULT_MAX_PAGES,
+  DEFAULT_MAX_PAGE_VISITS,
   DEFAULT_MAX_REDIRECTS,
   DEFAULT_MAX_RETRIES,
+  DEFAULT_PAGE_CRAWL_BEHAVIOR,
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_RESPECT_ROBOTS,
   DEFAULT_RPS_LIMIT,
   DEFAULT_TIME_LIMIT_SECONDS,
   DEFAULT_WORKER_COUNT,
 } from "./defaults.js";
-import type { CrawlConfig, ValidationError, ValidationResult } from "./types.js";
+import {
+  normalizeMaxPageVisits,
+  normalizePageCrawlBehavior,
+  syncPageInDedupeResourceTypes,
+} from "./page-crawl-behavior.js";
+import {
+  ASSET_RESOURCE_TYPES,
+  PAGE_CRAWL_BEHAVIORS,
+  RESOURCE_TYPES,
+  type CrawlConfig,
+  type PageCrawlBehavior,
+  type ResourceType,
+  type ValidationError,
+  type ValidationResult,
+} from "./types.js";
 
-type PartialCrawlConfig = Partial<CrawlConfig>;
+type PartialCrawlConfig = Partial<CrawlConfig> & {
+  /** @deprecated Prefer `dedupeResourceTypes`. Kept for reading older configs. */
+  dedupeRequests?: boolean;
+};
 
 const PUBLIC_SCHEMES = new Set(["http:", "https:"]);
+const PAGE_CRAWL_BEHAVIOR_SET = new Set<string>(PAGE_CRAWL_BEHAVIORS);
 
 export function getSiteOrigin(url: string): string | null {
   try {
@@ -96,6 +116,87 @@ function validateBoolean(value: unknown, field: string, errors: ValidationError[
   return value;
 }
 
+const RESOURCE_TYPE_SET = new Set<string>(RESOURCE_TYPES);
+
+/**
+ * Normalize dedupe settings from current `dedupeResourceTypes` or legacy `dedupeRequests`.
+ * Legacy `false` maps to asset types only (old runtime skipped page dedupe but always deduped assets).
+ */
+export function normalizeDedupeResourceTypes(
+  dedupeResourceTypes: unknown,
+  legacyDedupeRequests?: unknown,
+): ResourceType[] {
+  if (Array.isArray(dedupeResourceTypes)) {
+    const selected = new Set(
+      dedupeResourceTypes.filter(
+        (type): type is ResourceType => typeof type === "string" && RESOURCE_TYPE_SET.has(type),
+      ),
+    );
+    return RESOURCE_TYPES.filter((type) => selected.has(type));
+  }
+
+  if (legacyDedupeRequests === false) return [...ASSET_RESOURCE_TYPES];
+  return [...DEFAULT_DEDUPE_RESOURCE_TYPES];
+}
+
+function validateDedupeResourceTypes(
+  value: unknown,
+  field: string,
+  errors: ValidationError[],
+  legacyDedupeRequests?: unknown,
+): ResourceType[] {
+  if (value === undefined || value === null) {
+    return normalizeDedupeResourceTypes(undefined, legacyDedupeRequests);
+  }
+  if (!Array.isArray(value)) {
+    pushError(errors, field, "Must be an array of resource types");
+    return [...DEFAULT_DEDUPE_RESOURCE_TYPES];
+  }
+  for (const entry of value) {
+    if (typeof entry !== "string" || !RESOURCE_TYPE_SET.has(entry)) {
+      pushError(
+        errors,
+        field,
+        `Invalid resource type "${String(entry)}"; expected one of ${RESOURCE_TYPES.join(", ")}`,
+      );
+      return [...DEFAULT_DEDUPE_RESOURCE_TYPES];
+    }
+  }
+  return normalizeDedupeResourceTypes(value);
+}
+
+function validatePageCrawlBehavior(
+  value: unknown,
+  field: string,
+  errors: ValidationError[],
+  dedupeResourceTypes: unknown,
+  legacyDedupeRequests?: unknown,
+): PageCrawlBehavior {
+  if (value === undefined || value === null) {
+    return normalizePageCrawlBehavior(undefined, dedupeResourceTypes, legacyDedupeRequests);
+  }
+  if (typeof value !== "string" || !PAGE_CRAWL_BEHAVIOR_SET.has(value)) {
+    pushError(
+      errors,
+      field,
+      `Invalid page crawl behavior; expected one of ${PAGE_CRAWL_BEHAVIORS.join(", ")}`,
+    );
+    return DEFAULT_PAGE_CRAWL_BEHAVIOR;
+  }
+  return value as PageCrawlBehavior;
+}
+
+function validateMaxPageVisits(
+  value: unknown,
+  field: string,
+  errors: ValidationError[],
+  behavior: PageCrawlBehavior,
+): number | null {
+  if (behavior !== "bounded-revisits") return null;
+  if (value === undefined || value === null || value === "") return DEFAULT_MAX_PAGE_VISITS;
+  return validatePositiveInt(value, field, errors, 1, 10_000) ?? DEFAULT_MAX_PAGE_VISITS;
+}
+
 type ValidateCrawlConfigOptions = {
   applyDefaultMaxPages?: boolean;
 };
@@ -136,8 +237,28 @@ export function validateCrawlConfig(
   const excludePagesFromResults =
     validateBoolean(input.excludePagesFromResults, "excludePagesFromResults", errors) ??
     DEFAULT_EXCLUDE_PAGES_FROM_RESULTS;
-  const dedupeRequests =
-    validateBoolean(input.dedupeRequests, "dedupeRequests", errors) ?? DEFAULT_DEDUPE_REQUESTS;
+  const pageCrawlBehavior = validatePageCrawlBehavior(
+    input.pageCrawlBehavior,
+    "pageCrawlBehavior",
+    errors,
+    input.dedupeResourceTypes,
+    input.dedupeRequests,
+  );
+  const maxPageVisits = validateMaxPageVisits(
+    input.maxPageVisits,
+    "maxPageVisits",
+    errors,
+    pageCrawlBehavior,
+  );
+  const dedupeResourceTypes = syncPageInDedupeResourceTypes(
+    validateDedupeResourceTypes(
+      input.dedupeResourceTypes,
+      "dedupeResourceTypes",
+      errors,
+      input.dedupeRequests,
+    ),
+    pageCrawlBehavior,
+  );
   const respectRobots =
     validateBoolean(input.respectRobots, "respectRobots", errors) ?? DEFAULT_RESPECT_ROBOTS;
   const requestTimeoutMs =
@@ -175,7 +296,9 @@ export function validateCrawlConfig(
       timeLimitSeconds,
       allowImages,
       excludePagesFromResults,
-      dedupeRequests,
+      pageCrawlBehavior,
+      maxPageVisits,
+      dedupeResourceTypes,
       respectRobots,
       requestTimeoutMs,
       connectTimeoutMs,
@@ -186,6 +309,22 @@ export function validateCrawlConfig(
 }
 
 export function mergeCrawlConfig(base: CrawlConfig, overrides: PartialCrawlConfig): CrawlConfig {
+  const pageCrawlBehavior =
+    overrides.pageCrawlBehavior ??
+    normalizePageCrawlBehavior(
+      base.pageCrawlBehavior,
+      overrides.dedupeResourceTypes ?? base.dedupeResourceTypes,
+      overrides.dedupeRequests,
+    );
+  const maxPageVisits = normalizeMaxPageVisits(
+    overrides.maxPageVisits !== undefined ? overrides.maxPageVisits : base.maxPageVisits,
+    pageCrawlBehavior,
+  );
+  const dedupeResourceTypes = syncPageInDedupeResourceTypes(
+    overrides.dedupeResourceTypes ?? base.dedupeResourceTypes,
+    pageCrawlBehavior,
+  );
+
   return {
     startUrl: overrides.startUrl ?? base.startUrl,
     rpsLimit: overrides.rpsLimit ?? base.rpsLimit,
@@ -196,7 +335,9 @@ export function mergeCrawlConfig(base: CrawlConfig, overrides: PartialCrawlConfi
     allowImages: overrides.allowImages ?? base.allowImages,
     excludePagesFromResults:
       overrides.excludePagesFromResults ?? base.excludePagesFromResults,
-    dedupeRequests: overrides.dedupeRequests ?? base.dedupeRequests,
+    pageCrawlBehavior,
+    maxPageVisits,
+    dedupeResourceTypes,
     respectRobots: overrides.respectRobots ?? base.respectRobots,
     requestTimeoutMs: overrides.requestTimeoutMs ?? base.requestTimeoutMs,
     connectTimeoutMs: overrides.connectTimeoutMs ?? base.connectTimeoutMs,
@@ -217,3 +358,9 @@ export function isRunComparable(run: { status: string; aggregates: unknown | nul
   if (!run.aggregates) return false;
   return run.status === "completed" || run.status === "stopped";
 }
+
+export {
+  normalizeMaxPageVisits,
+  normalizePageCrawlBehavior,
+  syncPageInDedupeResourceTypes,
+} from "./page-crawl-behavior.js";

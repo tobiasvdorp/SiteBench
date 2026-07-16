@@ -1,12 +1,36 @@
 import { useState } from "react";
 import { Play, Save } from "lucide-react";
-import type { CrawlConfig } from "@sitebench/core";
+import type { CrawlConfig, ResourceType } from "@sitebench/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { formToCrawlConfig, type RunSettingsFormState } from "@/lib/run-settings-preferences";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  ASSET_RESOURCE_TYPES,
+  formToCrawlConfig,
+  isPageCrawlBehavior,
+  PAGE_CRAWL_BEHAVIOR_DESCRIPTIONS,
+  PAGE_CRAWL_BEHAVIOR_LABELS,
+  PAGE_CRAWL_BEHAVIORS,
+  toggleDedupeResourceType,
+  type RunSettingsFormState,
+} from "@/lib/run-settings-preferences";
+
+const DEDUPE_TYPE_LABELS: Record<Exclude<ResourceType, "page">, string> = {
+  css: "CSS",
+  js: "JavaScript",
+  font: "Fonts",
+  image: "Images",
+  other: "Other",
+};
 
 type Props = {
   settings: RunSettingsFormState;
@@ -162,15 +186,75 @@ export function RunLauncher({ settings, onSettingsChange, onStart, onSaveAsTempl
               Exclude HTML pages from saved run data
             </Label>
           </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="dedupe-requests"
-              checked={settings.dedupeRequests}
-              onCheckedChange={(checked) => updateSettings({ dedupeRequests: checked === true })}
-            />
-            <Label htmlFor="dedupe-requests" className="font-normal">
-              Deduplicate requests
-            </Label>
+          <div className="space-y-2">
+            <Label htmlFor="page-crawl-behavior">Page crawl behavior</Label>
+            <Select
+              value={settings.pageCrawlBehavior}
+              onValueChange={(value) => {
+                if (!isPageCrawlBehavior(value)) return;
+                updateSettings({ pageCrawlBehavior: value });
+              }}
+            >
+              <SelectTrigger id="page-crawl-behavior" aria-label="Page crawl behavior">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_CRAWL_BEHAVIORS.map((behavior) => (
+                  <SelectItem key={behavior} value={behavior}>
+                    {PAGE_CRAWL_BEHAVIOR_LABELS[behavior]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {PAGE_CRAWL_BEHAVIOR_DESCRIPTIONS[settings.pageCrawlBehavior]}
+            </p>
+          </div>
+          {settings.pageCrawlBehavior === "bounded-revisits" && (
+            <div className="space-y-2">
+              <Label htmlFor="max-page-visits">Max visits per page</Label>
+              <Input
+                id="max-page-visits"
+                name="maxPageVisits"
+                type="number"
+                min={1}
+                value={settings.maxPageVisits}
+                onChange={(e) => updateSettings({ maxPageVisits: e.target.value })}
+                className="font-mono"
+              />
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label>Deduplicate assets</Label>
+            <p className="text-sm text-muted-foreground">
+              Skip asset URLs that were already queued for the selected types.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {ASSET_RESOURCE_TYPES.map((type) => {
+                const checked = settings.dedupeResourceTypes.includes(type);
+                const id = `dedupe-${type}`;
+                return (
+                  <div key={type} className="flex items-center gap-2">
+                    <Checkbox
+                      id={id}
+                      checked={checked}
+                      onCheckedChange={(value) =>
+                        updateSettings({
+                          dedupeResourceTypes: toggleDedupeResourceType(
+                            settings.dedupeResourceTypes,
+                            type,
+                            value === true,
+                          ),
+                        })
+                      }
+                    />
+                    <Label htmlFor={id} className="font-normal">
+                      {DEDUPE_TYPE_LABELS[type as Exclude<ResourceType, "page">]}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">

@@ -1,7 +1,10 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createInMemoryStore } from "./database.js";
 import { ComparisonEngine } from "./comparison-engine.js";
-import { aggregatesFromLatencies } from "./database.js";
+import { DatabaseStore, aggregatesFromLatencies, createInMemoryStore } from "./database.js";
+import type { ResourceType, RunAggregates } from "./types.js";
 
 describe("DatabaseStore", () => {
   it("round-trips templates and runs with immutable snapshots", () => {
@@ -16,7 +19,9 @@ describe("DatabaseStore", () => {
       timeLimitSeconds: null,
       allowImages: false,
       excludePagesFromResults: false,
-      dedupeRequests: true,
+      pageCrawlBehavior: "unique-explorer" as const,
+      maxPageVisits: null,
+      dedupeResourceTypes: ["page", "css", "js", "font", "image", "other"] as import("./types.js").ResourceType[],
       respectRobots: true,
       requestTimeoutMs: 30_000,
       connectTimeoutMs: 10_000,
@@ -44,6 +49,8 @@ describe("DatabaseStore", () => {
       timings: { dnsMs: 1, connectMs: 2, ttfbMs: 50, totalMs: 80 },
       byteCount: 100,
       redirectCount: 0,
+      contentType: null,
+      responseHeaders: {},
     });
 
     const aggregates = store.computeAggregatesFromRequests(run.id);
@@ -52,6 +59,7 @@ describe("DatabaseStore", () => {
     const loaded = store.getRun(run.id);
     expect(loaded?.configSnapshot.runName).toBe("Run A");
     expect(loaded?.aggregates?.totalRequests).toBe(1);
+    expect(loaded?.aggregates?.uniqueRequests).toBe(1);
     expect(loaded?.aggregates?.resourceTypeCounts.page).toBe(1);
 
     store.updateTemplate(template.id, {
@@ -62,6 +70,104 @@ describe("DatabaseStore", () => {
 
     const unchangedRun = store.getRun(run.id);
     expect(unchangedRun?.configSnapshot.maxPages).toBe(10);
+  });
+
+  it("counts unique request URLs separately from total requests", () => {
+    const store = createInMemoryStore();
+    const snapshot = {
+      startUrl: "https://example.com",
+      rpsLimit: 2,
+      workerCount: 1,
+      maxPages: 10,
+      timeLimitSeconds: null,
+      allowImages: false,
+      excludePagesFromResults: false,
+      pageCrawlBehavior: "unique-explorer" as const,
+      maxPageVisits: null,
+      dedupeResourceTypes: [] as import("./types.js").ResourceType[],
+      respectRobots: true,
+      requestTimeoutMs: 30_000,
+      connectTimeoutMs: 10_000,
+      maxRedirects: 5,
+      maxRetries: 2,
+      templateId: null,
+      templateName: null,
+      runName: "Dupes",
+      siteOrigin: "https://example.com",
+    };
+    const run = store.createRun("Dupes", "https://example.com", snapshot);
+    const request = {
+      url: "https://example.com/app.js",
+      resourceType: "js" as const,
+      statusCode: 200,
+      errorClass: null,
+      errorMessage: null,
+      timings: { dnsMs: 1, connectMs: 2, ttfbMs: 20, totalMs: 30 },
+      byteCount: 50,
+      redirectCount: 0,
+      contentType: "application/javascript",
+      responseHeaders: {},
+    };
+    store.insertRequest(run.id, request);
+    store.insertRequest(run.id, request);
+    store.insertRequest(run.id, { ...request, url: "https://example.com/style.css", resourceType: "css" });
+
+    const aggregates = store.computeAggregatesFromRequests(run.id);
+    expect(aggregates.totalRequests).toBe(3);
+    expect(aggregates.uniqueRequests).toBe(2);
+  });
+
+  it("backfills uniqueRequests for legacy aggregates when the database is opened", () => {
+    const dbPath = join(mkdtempSync(join(tmpdir(), "sitebench-unique-")), "test.db");
+    const store = new DatabaseStore(dbPath);
+    const snapshot = {
+      startUrl: "https://example.com",
+      rpsLimit: 2,
+      workerCount: 1,
+      maxPages: 10,
+      timeLimitSeconds: null,
+      allowImages: false,
+      excludePagesFromResults: false,
+      pageCrawlBehavior: "unique-explorer" as const,
+      maxPageVisits: null,
+      dedupeResourceTypes: [] as ResourceType[],
+      respectRobots: true,
+      requestTimeoutMs: 30_000,
+      connectTimeoutMs: 10_000,
+      maxRedirects: 5,
+      maxRetries: 2,
+      templateId: null,
+      templateName: null,
+      runName: "Legacy",
+      siteOrigin: "https://example.com",
+    };
+    const run = store.createRun("Legacy", "https://example.com", snapshot);
+    const request = {
+      url: "https://example.com/app.js",
+      resourceType: "js" as const,
+      statusCode: 200,
+      errorClass: null,
+      errorMessage: null,
+      timings: { dnsMs: 1, connectMs: 2, ttfbMs: 20, totalMs: 30 },
+      byteCount: 50,
+      redirectCount: 0,
+      contentType: "application/javascript",
+      responseHeaders: {},
+    };
+    store.insertRequest(run.id, request);
+    store.insertRequest(run.id, request);
+    store.insertRequest(run.id, { ...request, url: "https://example.com/style.css", resourceType: "css" });
+
+    const aggregates = store.computeAggregatesFromRequests(run.id);
+    const { uniqueRequests: _uniqueRequests, ...legacyAggregates } = aggregates;
+    store.finalizeRun(run.id, legacyAggregates as RunAggregates, false);
+    store.close();
+
+    const reopened = new DatabaseStore(dbPath);
+    const loaded = reopened.getRun(run.id);
+    expect(loaded?.aggregates?.totalRequests).toBe(3);
+    expect(loaded?.aggregates?.uniqueRequests).toBe(2);
+    reopened.close();
   });
 
   it("always stores respectRobots as true for templates", () => {
@@ -76,7 +182,9 @@ describe("DatabaseStore", () => {
       timeLimitSeconds: null,
       allowImages: false,
       excludePagesFromResults: false,
-      dedupeRequests: true,
+      pageCrawlBehavior: "unique-explorer" as const,
+      maxPageVisits: null,
+      dedupeResourceTypes: ["page", "css", "js", "font", "image", "other"] as import("./types.js").ResourceType[],
       respectRobots: false,
       requestTimeoutMs: 30_000,
       connectTimeoutMs: 10_000,
@@ -107,7 +215,9 @@ describe("DatabaseStore", () => {
       timeLimitSeconds: null,
       allowImages: true,
       excludePagesFromResults: false,
-      dedupeRequests: true,
+      pageCrawlBehavior: "unique-explorer" as const,
+      maxPageVisits: null,
+      dedupeResourceTypes: ["page", "css", "js", "font", "image", "other"] as import("./types.js").ResourceType[],
       respectRobots: true,
       requestTimeoutMs: 30_000,
       connectTimeoutMs: 10_000,
@@ -138,6 +248,8 @@ describe("DatabaseStore", () => {
         timings: { dnsMs: 1, connectMs: 2, ttfbMs: 50, totalMs: 80 },
         byteCount: 100,
         redirectCount: 0,
+        contentType: null,
+        responseHeaders: {},
       });
     }
 
@@ -155,7 +267,9 @@ describe("DatabaseStore", () => {
       timeLimitSeconds: null,
       allowImages: false,
       excludePagesFromResults: false,
-      dedupeRequests: true,
+      pageCrawlBehavior: "unique-explorer" as const,
+      maxPageVisits: null,
+      dedupeResourceTypes: ["page", "css", "js", "font", "image", "other"] as import("./types.js").ResourceType[],
       respectRobots: true,
       requestTimeoutMs: 30_000,
       connectTimeoutMs: 10_000,
@@ -177,6 +291,8 @@ describe("DatabaseStore", () => {
       timings: { dnsMs: 1, connectMs: 2, ttfbMs: 50, totalMs: 80 },
       byteCount: 100,
       redirectCount: 0,
+      contentType: null,
+      responseHeaders: {},
     });
 
     expect(store.reconcileStaleRunningRuns()).toBe(1);
@@ -203,7 +319,9 @@ describe("ComparisonEngine", () => {
         timeLimitSeconds: null,
         allowImages: false,
         excludePagesFromResults: false,
-        dedupeRequests: true,
+        pageCrawlBehavior: "unique-explorer" as const,
+        maxPageVisits: null,
+        dedupeResourceTypes: ["page", "css", "js", "font", "image", "other"] as import("./types.js").ResourceType[],
         respectRobots: true,
         requestTimeoutMs: 30_000,
         connectTimeoutMs: 10_000,
@@ -225,6 +343,8 @@ describe("ComparisonEngine", () => {
           timings: { dnsMs: null, connectMs: null, ttfbMs: latency, totalMs: latency + 10 },
           byteCount: 10,
           redirectCount: 0,
+          contentType: null,
+          responseHeaders: {},
         });
       }
       const aggregates = aggregatesFromLatencies(latencies, latencies.length, 0);

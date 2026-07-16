@@ -9,7 +9,13 @@ const UNIQUE_REQUESTS_KEY = "sitebench.comparison.uniqueRequests";
 const SELECTED_RUN_IDS_KEY = "sitebench.comparison.selectedRunIds";
 const BASELINE_KEY_PREFIX = "sitebench.comparison.baseline.";
 
-export type ChartRangeMode = "auto" | "custom";
+export type ChartRangeMode = "full" | "p95" | "p99" | "custom";
+
+export const CHART_RANGE_MODE_OPTIONS: { value: Exclude<ChartRangeMode, "custom">; label: string }[] = [
+  { value: "full", label: "Full range" },
+  { value: "p95", label: "Up to p95" },
+  { value: "p99", label: "Up to p99" },
+];
 export type ChartValueMode = "count" | "percent";
 export type ChartResourceFilter = "all" | "assets" | "page" | "css" | "js" | "font" | "image" | "other";
 function readJson<T>(key: string, fallback: T): T {
@@ -61,7 +67,9 @@ export function setStoredBaseline(siteOrigin: string, runId: string | null) {
 
 export function getStoredChartRangeMode(): ChartRangeMode {
   const value = localStorage.getItem(CHART_RANGE_MODE_KEY);
-  return value === "custom" ? "custom" : "auto";
+  if (value === "full" || value === "p95" || value === "p99") return value;
+  if (value === "auto") return "full";
+  return "p95";
 }
 
 export function setStoredChartRangeMode(mode: ChartRangeMode) {

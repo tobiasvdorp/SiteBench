@@ -1,21 +1,30 @@
 import type { Command } from "commander";
 import {
   DEFAULT_ALLOW_IMAGES,
-  DEFAULT_DEDUPE_REQUESTS,
+  DEFAULT_DEDUPE_RESOURCE_TYPES,
   DEFAULT_EXCLUDE_PAGES_FROM_RESULTS,
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_MAX_PAGES,
+  DEFAULT_MAX_PAGE_VISITS,
   DEFAULT_MAX_REDIRECTS,
   DEFAULT_MAX_RETRIES,
+  DEFAULT_PAGE_CRAWL_BEHAVIOR,
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_RESPECT_ROBOTS,
   DEFAULT_RPS_LIMIT,
   DEFAULT_TIME_LIMIT_SECONDS,
   DEFAULT_WORKER_COUNT,
+  PAGE_CRAWL_BEHAVIORS,
+  RESOURCE_TYPES,
   SiteBench,
   StartFailure,
   ValidationFailure,
+  normalizeDedupeResourceTypes,
+  normalizeMaxPageVisits,
+  syncPageInDedupeResourceTypes,
   type CrawlConfig,
+  type PageCrawlBehavior,
+  type ResourceType,
   type TemplateInput,
 } from "@sitebench/core";
 
@@ -35,6 +44,27 @@ function parseBool(value: string) {
   throw new Error("Expected true or false");
 }
 
+function parseDedupeResourceTypes(value: string): ResourceType[] {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === "all") return [...DEFAULT_DEDUPE_RESOURCE_TYPES];
+  if (trimmed === "none") return [];
+  return normalizeDedupeResourceTypes(trimmed.split(",").map((part) => part.trim()).filter(Boolean));
+}
+
+function formatDedupeResourceTypes(types: ResourceType[]) {
+  if (types.length === 0) return "none";
+  if (types.length === RESOURCE_TYPES.length) return "all";
+  return types.join(",");
+}
+
+function parsePageCrawlBehavior(value: string): PageCrawlBehavior {
+  const trimmed = value.trim().toLowerCase();
+  if (!PAGE_CRAWL_BEHAVIORS.includes(trimmed as PageCrawlBehavior)) {
+    throw new Error(`Invalid page crawl behavior; expected one of ${PAGE_CRAWL_BEHAVIORS.join(", ")}`);
+  }
+  return trimmed as PageCrawlBehavior;
+}
+
 function parseOverrides(command: Command): Partial<CrawlConfig> {
   const opts = command.opts();
   const overrides: Partial<CrawlConfig> = {};
@@ -49,7 +79,13 @@ function parseOverrides(command: Command): Partial<CrawlConfig> {
   if (opts.excludePagesFromResults !== undefined) {
     overrides.excludePagesFromResults = parseBool(String(opts.excludePagesFromResults));
   }
-  if (opts.dedupeRequests !== undefined) overrides.dedupeRequests = parseBool(String(opts.dedupeRequests));
+  if (opts.pageCrawlBehavior !== undefined) {
+    overrides.pageCrawlBehavior = parsePageCrawlBehavior(String(opts.pageCrawlBehavior));
+  }
+  if (opts.maxPageVisits !== undefined) overrides.maxPageVisits = Number(opts.maxPageVisits);
+  if (opts.dedupeResourceTypes !== undefined) {
+    overrides.dedupeResourceTypes = parseDedupeResourceTypes(String(opts.dedupeResourceTypes));
+  }
   if (opts.respectRobots !== undefined) overrides.respectRobots = parseBool(String(opts.respectRobots));
   if (opts.requestTimeout !== undefined) overrides.requestTimeoutMs = Number(opts.requestTimeout);
   if (opts.connectTimeout !== undefined) overrides.connectTimeoutMs = Number(opts.connectTimeout);
@@ -61,6 +97,14 @@ function parseOverrides(command: Command): Partial<CrawlConfig> {
 
 function templateInputFromOptions(name: string, command: Command): TemplateInput {
   const opts = command.opts();
+  const pageCrawlBehavior =
+    opts.pageCrawlBehavior !== undefined
+      ? parsePageCrawlBehavior(String(opts.pageCrawlBehavior))
+      : DEFAULT_PAGE_CRAWL_BEHAVIOR;
+  const dedupeResourceTypes =
+    opts.dedupeResourceTypes !== undefined
+      ? parseDedupeResourceTypes(String(opts.dedupeResourceTypes))
+      : [...DEFAULT_DEDUPE_RESOURCE_TYPES];
   return {
     name,
     startUrl: opts.url,
@@ -74,8 +118,12 @@ function templateInputFromOptions(name: string, command: Command): TemplateInput
       opts.excludePagesFromResults !== undefined
         ? parseBool(String(opts.excludePagesFromResults))
         : DEFAULT_EXCLUDE_PAGES_FROM_RESULTS,
-    dedupeRequests:
-      opts.dedupeRequests !== undefined ? parseBool(String(opts.dedupeRequests)) : DEFAULT_DEDUPE_REQUESTS,
+    pageCrawlBehavior,
+    maxPageVisits:
+      opts.maxPageVisits !== undefined
+        ? Number(opts.maxPageVisits)
+        : normalizeMaxPageVisits(null, pageCrawlBehavior),
+    dedupeResourceTypes: syncPageInDedupeResourceTypes(dedupeResourceTypes, pageCrawlBehavior),
     respectRobots: true,
     requestTimeoutMs: Number(opts.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MS),
     connectTimeoutMs: Number(opts.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT_MS),
@@ -88,7 +136,7 @@ function printTemplate(template: ReturnType<SiteBench["getTemplate"]>) {
   if (!template) return;
   console.log(`${template.id}\t${template.name}\t${template.startUrl}`);
   console.log(
-    `  rps=${template.rpsLimit} workers=${template.workerCount} maxPages=${template.maxPages ?? "none"} timeLimitSeconds=${template.timeLimitSeconds ?? "none"} allowImages=${template.allowImages} excludePagesFromResults=${template.excludePagesFromResults} dedupeRequests=${template.dedupeRequests} respectRobots=${template.respectRobots}`,
+    `  rps=${template.rpsLimit} workers=${template.workerCount} maxPages=${template.maxPages ?? "none"} timeLimitSeconds=${template.timeLimitSeconds ?? "none"} allowImages=${template.allowImages} excludePagesFromResults=${template.excludePagesFromResults} pageCrawlBehavior=${template.pageCrawlBehavior} maxPageVisits=${template.maxPageVisits ?? "n/a"} dedupeResourceTypes=${formatDedupeResourceTypes(template.dedupeResourceTypes)} respectRobots=${template.respectRobots}`,
   );
 }
 
@@ -102,7 +150,9 @@ function printRunSummary(run: NonNullable<ReturnType<SiteBench["getRun"]>>) {
   if (run.truncated && run.truncationReason === "time-limit") console.log("Warning: time limit reached before queue emptied");
   else if (run.truncated) console.log("Warning: crawl truncated before queue emptied");
   if (agg) {
-    console.log(`Requests: ${agg.totalRequests}, Errors: ${agg.errorCount}, Pages: ${agg.pageCount}`);
+    console.log(
+      `Requests: ${agg.totalRequests} (${agg.uniqueRequests} unique), Errors: ${agg.errorCount}, Pages: ${agg.pageCount}`,
+    );
     console.log(
       `Percentiles (ms): p50=${agg.p50.toFixed(1)} p75=${agg.p75.toFixed(1)} p90=${agg.p90.toFixed(1)} p95=${agg.p95.toFixed(1)} p99=${agg.p99.toFixed(1)}`,
     );
@@ -125,7 +175,9 @@ export function createCli(program: Command) {
       console.log(`  maxRetries: ${DEFAULT_MAX_RETRIES}`);
       console.log(`  allowImages: ${DEFAULT_ALLOW_IMAGES}`);
       console.log(`  excludePagesFromResults: ${DEFAULT_EXCLUDE_PAGES_FROM_RESULTS}`);
-      console.log(`  dedupeRequests: ${DEFAULT_DEDUPE_REQUESTS}`);
+      console.log(`  pageCrawlBehavior: ${DEFAULT_PAGE_CRAWL_BEHAVIOR}`);
+      console.log(`  maxPageVisits: ${DEFAULT_MAX_PAGE_VISITS} (bounded-revisits only)`);
+      console.log(`  dedupeResourceTypes: ${formatDedupeResourceTypes(DEFAULT_DEDUPE_RESOURCE_TYPES)}`);
       console.log(`  respectRobots: ${DEFAULT_RESPECT_ROBOTS}`);
     });
 
@@ -153,7 +205,20 @@ export function createCli(program: Command) {
     .option("--time-limit-seconds <number>", "Maximum run duration in seconds")
     .option("--allow-images <bool>", "Fetch images")
     .option("--exclude-pages-from-results <bool>", "Omit HTML page requests from saved run data")
-    .option("--dedupe-requests <bool>", "Skip already-queued page and asset URLs")
+    .option(
+      "--page-crawl-behavior <behavior>",
+      `Page crawl behavior (${PAGE_CRAWL_BEHAVIORS.join(", ")})`,
+      DEFAULT_PAGE_CRAWL_BEHAVIOR,
+    )
+    .option(
+      "--max-page-visits <number>",
+      `Max fetches per page URL when using bounded-revisits (default ${DEFAULT_MAX_PAGE_VISITS})`,
+    )
+    .option(
+      "--dedupe-resource-types <types>",
+      `Comma-separated resource types to dedupe (${RESOURCE_TYPES.join(", ")}), or all/none`,
+      "all",
+    )
     .option("--request-timeout <ms>", "Request timeout in ms", String(DEFAULT_REQUEST_TIMEOUT_MS))
     .option("--connect-timeout <ms>", "Connect timeout in ms", String(DEFAULT_CONNECT_TIMEOUT_MS))
     .option("--max-redirects <number>", "Maximum redirects", String(DEFAULT_MAX_REDIRECTS))
@@ -186,7 +251,18 @@ export function createCli(program: Command) {
     .option("--time-limit-seconds <number>", "Maximum run duration in seconds")
     .option("--allow-images <bool>", "Fetch images")
     .option("--exclude-pages-from-results <bool>", "Omit HTML page requests from saved run data")
-    .option("--dedupe-requests <bool>", "Skip already-queued page and asset URLs")
+    .option(
+      "--page-crawl-behavior <behavior>",
+      `Page crawl behavior (${PAGE_CRAWL_BEHAVIORS.join(", ")})`,
+    )
+    .option(
+      "--max-page-visits <number>",
+      `Max fetches per page URL when using bounded-revisits (default ${DEFAULT_MAX_PAGE_VISITS})`,
+    )
+    .option(
+      "--dedupe-resource-types <types>",
+      `Comma-separated resource types to dedupe (${RESOURCE_TYPES.join(", ")}), or all/none`,
+    )
     .option("--request-timeout <ms>", "Request timeout in ms")
     .option("--connect-timeout <ms>", "Connect timeout in ms")
     .option("--max-redirects <number>", "Maximum redirects")
@@ -244,7 +320,18 @@ export function createCli(program: Command) {
     .option("--time-limit-seconds <number>", "Override maximum run duration in seconds")
     .option("--allow-images <bool>", "Override image fetching")
     .option("--exclude-pages-from-results <bool>", "Override HTML page persistence in run data")
-    .option("--dedupe-requests <bool>", "Override request deduplication")
+    .option(
+      "--page-crawl-behavior <behavior>",
+      `Override page crawl behavior (${PAGE_CRAWL_BEHAVIORS.join(", ")})`,
+    )
+    .option(
+      "--max-page-visits <number>",
+      `Override max fetches per page URL when using bounded-revisits`,
+    )
+    .option(
+      "--dedupe-resource-types <types>",
+      `Override resource types to dedupe (${RESOURCE_TYPES.join(", ")}), or all/none`,
+    )
     .option("--respect-robots <bool>", "Override robots.txt behavior")
     .option("--request-timeout <ms>", "Override request timeout")
     .option("--connect-timeout <ms>", "Override connect timeout")
