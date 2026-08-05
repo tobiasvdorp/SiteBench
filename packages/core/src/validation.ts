@@ -224,7 +224,7 @@ export function validateCrawlConfig(
   const workerCount =
     validatePositiveInt(input.workerCount, "workerCount", errors, 1, 20) ?? DEFAULT_WORKER_COUNT;
 
-  let maxPages = validateOptionalLimit(input.maxPages, "maxPages", errors, 1, 10_000);
+  let maxPages = validateOptionalLimit(input.maxPages, "maxPages", errors, 1, 20_000);
   if (maxPages === null && applyDefaultMaxPages && input.maxPages === undefined) {
     maxPages = DEFAULT_MAX_PAGES;
   }

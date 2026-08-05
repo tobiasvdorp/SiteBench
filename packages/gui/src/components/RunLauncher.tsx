@@ -142,6 +142,7 @@ export function RunLauncher({ settings, onSettingsChange, onStart, onSaveAsTempl
                 name="maxPages"
                 type="number"
                 min={1}
+                max={20_000}
                 placeholder="No page limit"
                 value={settings.maxPages}
                 onChange={(e) => updateSettings({ maxPages: e.target.value })}
